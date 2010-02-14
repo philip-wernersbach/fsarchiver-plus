@@ -227,8 +227,8 @@ int disklayoutwriter_dump_device(cdisklayoutwriter *dl, char *devname, cdico *di
     
     if ((xmlTextWriterWriteFormatAttribute(dl->writer, BAD_CAST "phys_sector_size", "%ld", (long)dev->phys_sector_size)<0) ||
         (xmlTextWriterWriteFormatAttribute(dl->writer, BAD_CAST "sector_size", "%ld", (long)dev->sector_size)<0) ||
-        (xmlTextWriterWriteFormatAttribute(dl->writer, BAD_CAST "model", "%s", (long)dev->model)<0) ||
-        (xmlTextWriterWriteFormatAttribute(dl->writer, BAD_CAST "path", "%s", (long)dev->path)<0) ||
+        (xmlTextWriterWriteFormatAttribute(dl->writer, BAD_CAST "model", "%s", dev->model)<0) ||
+        (xmlTextWriterWriteFormatAttribute(dl->writer, BAD_CAST "path", "%s", dev->path)<0) ||
         (xmlTextWriterWriteFormatAttribute(dl->writer, BAD_CAST "length", "%lld", (long long)dev->length)<0) ||
         (xmlTextWriterWriteFormatAttribute(dl->writer, BAD_CAST "disklabel", "%s", disk->type->name)<0))
     {   errprintf("disklayoutwriter_dump_device: Error at xmlTextWriterWriteFormatAttribute\n");
