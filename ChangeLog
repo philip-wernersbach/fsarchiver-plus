@@ -1,5 +1,7 @@
 fsarchiver: Filesystem Archiver for Linux [http://www.fsarchiver.org]
 =====================================================================
+* 0.7.0:
+  - Major feature: implemented savept, restpt, showpt (save and restore partition tables)
 * 0.6.8:
   - Fixed compilation error on systems with recent kernel headers by including <sys/stat.h>
 * 0.6.7 (2010-01-31):

@@ -138,7 +138,7 @@ int partutil_show_disk_specs(char *devname)
     }
     
     format_size(((u64)dev->length)*((u64)dev->sector_size), fmtsize, sizeof(fmtsize), 'h');
-    msgprintf(MSG_FORCE, "Destination disk: [%s] [%s] [%s] (disklabel: %s)\n\n",
+    msgprintf(MSG_FORCE, "\nDestination disk: [%s] [%s] [%s] (disklabel: %s)\n\n",
         devname, fmtsize, dev->model, disk->type->name); 
 
 partutil_show_disk_specs_cleanup:
@@ -553,8 +553,6 @@ int restpt_show_device(cstrdico *dico, int id)
         return -1;
     }
     
-    /*msgprintf(MSG_FORCE, "[%2d] [%-16s] [%11s] [%-27s] [%-9s]\n",
-        id, disk_specs.path, disk_specs.size, disk_specs.model, disk_specs.disklabel);*/
     msgprintf(MSG_FORCE, "\n");
     msgprintf(MSG_FORCE, "id=%d: Original disk: [%s] [%s] [%s] (disklabel: %s)\n",
         id, disk_specs.path, disk_specs.size, disk_specs.model, disk_specs.disklabel);
@@ -568,7 +566,6 @@ int restpt_show_device(cstrdico *dico, int id)
             partcnt++;
         }
     }
-    msgprintf(MSG_FORCE, "\n");
     
     return 0;
 }
