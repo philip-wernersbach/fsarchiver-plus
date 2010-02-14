@@ -43,8 +43,6 @@
 
 enum {PARTSTATUS_NULL=0, PARTSTATUS_CREATED, PARTSTATUS_RELOCATED};
 
-#define MY_DISK_DEDICATED_TO_TESTS "ATA SAMSUNG HD103UJ"
-
 #define MAX_PARTS   256
 
 // =================================================================================
@@ -521,10 +519,11 @@ int disklayoutbuilder_set_partitions_attributes(cdisklayoutbuilder *dl)
 int disklayoutbuilder_commit_changes(cdisklayoutbuilder *dl)
 {
     // DEVELOPMENT: hard-coded protection to be sure we work on the disk dedicated to tests
+    /*char *MY_DISK_DEDICATED_TO_TESTS="ATA SAMSUNG HD103UJ";
     if (strcmp(dl->dev->model, MY_DISK_DEDICATED_TO_TESTS)!=0)
     {   errprintf("Attempt to work on the wrong disk: expected=[%s], disk=[%s]\n", MY_DISK_DEDICATED_TO_TESTS, dl->dev->model);
         return -1;
-    }
+    }*/
     msgprintf(MSG_VERB2, "disklayoutbuilder_rest_device(%s): model=[%s]\n", dl->devname, dl->dev->model);
     
     if (ped_disk_commit_to_dev(dl->disk)!=1)
