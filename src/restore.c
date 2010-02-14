@@ -34,7 +34,7 @@
 #include "dico.h"
 #include "common.h"
 #include "options.h"
-#include "oper_restore.h"
+#include "restore.h"
 #include "archreader.h"
 #include "archinfo.h"
 #include "filesys.h"
@@ -47,6 +47,7 @@
 #include "fs_ntfs.h"
 #include "thread_comp.h"
 #include "thread_archio.h"
+#include "layout_rest.h"
 #include "syncthread.h"
 #include "regmulti.h"
 #include "crypto.h"
@@ -106,7 +107,7 @@ int is_filedir_excluded(char *relpath)
 }
 
 // convert an array of strings "id=x,dest=/dev/xxx,..." to an array of strdico
-int convert_argv_to_strdicos(cstrdico *dicoargv[], int argc, char *cmdargv[])
+int convert_argv_to_strdicos(cstrdico *dicoargv[], int argc, char *cmdargv[], char *possiblekeys)
 {
     cstrdico *tmpdico=NULL;
     char buffer[1024];
@@ -121,7 +122,7 @@ int convert_argv_to_strdicos(cstrdico *dicoargv[], int argc, char *cmdargv[])
             return -1;
         
         // parse argument and write (key,value) pairs in the strdico object
-        if ((strdico_set_valid_keys(tmpdico, "id,dest,mkfs")!=0) ||
+        if ((strdico_set_valid_keys(tmpdico, possiblekeys)!=0) ||
             (strdico_parse_string(tmpdico, cmdargv[i])!=0))
         {   strdico_destroy(tmpdico);
             return -1;
@@ -1051,63 +1052,66 @@ int extractar_read_mainhead(cextractar *exar, cdico **dicomainhead)
         return -1;
     }
     
-    if (dico_get_u32(*dicomainhead, 0, MAINHEADKEY_ARCHTYPE, &exar->ai.archtype)!=0)
+    if (dico_get_u32(*dicomainhead, MAINHEADSEC_STD, MAINHEADKEY_ARCHTYPE, &exar->ai.archtype)!=0)
     {   errprintf("cannot find MAINHEADKEY_ARCHTYPE in main-header\n");
         return -1;
     }
     
-    if (exar->ai.archtype==ARCHTYPE_FILESYSTEMS && dico_get_u64(*dicomainhead, 0, MAINHEADKEY_FSCOUNT, &exar->ai.fscount)!=0)
+    if (exar->ai.archtype==ARCHTYPE_FILESYSTEMS && dico_get_u64(*dicomainhead, MAINHEADSEC_STD, MAINHEADKEY_FSCOUNT, &exar->ai.fscount)!=0)
     {   errprintf("cannot find MAINHEADKEY_FSCOUNT in main-header\n");
         return -1;
     }
     
-    if (dico_get_u32(*dicomainhead, 0, MAINHEADKEY_ARCHIVEID, &exar->ai.archid)!=0)
+    if (exar->ai.archtype==ARCHTYPE_FILESYSTEMS && dico_get_u64(*dicomainhead, MAINHEADSEC_STD, MAINHEADKEY_PTCOUNT, &exar->ai.ptcount)!=0)
+        exar->ai.ptcount=0; // MAINHEADKEY_PTCOUNT was not present in archives created with fsarchiver < 0.7.0
+    
+    if (dico_get_u32(*dicomainhead, MAINHEADSEC_STD, MAINHEADKEY_ARCHIVEID, &exar->ai.archid)!=0)
     {   errprintf("cannot find MAINHEADKEY_ARCHIVEID in main-header\n");
         return -1;
     }
     
-    if (dico_get_data(*dicomainhead, 0, MAINHEADKEY_FILEFORMATVER, exar->ai.filefmt, FSA_MAX_FILEFMTLEN, NULL)!=0)
+    if (dico_get_data(*dicomainhead, MAINHEADSEC_STD, MAINHEADKEY_FILEFORMATVER, exar->ai.filefmt, FSA_MAX_FILEFMTLEN, NULL)!=0)
     {   errprintf("cannot find MAINHEADKEY_FILEFORMATVER in main-header\n");
         return -1;
     }
     
-    if (dico_get_data(*dicomainhead, 0, MAINHEADKEY_PROGVERCREAT, exar->ai.creatver, FSA_MAX_PROGVERLEN, NULL)!=0)
+    if (dico_get_data(*dicomainhead, MAINHEADSEC_STD, MAINHEADKEY_PROGVERCREAT, exar->ai.creatver, FSA_MAX_PROGVERLEN, NULL)!=0)
     {   errprintf("cannot find MAINHEADKEY_PROGVERCREAT in main-header\n");
         return -1;
     }
     
-    if (dico_get_data(*dicomainhead, 0, MAINHEADKEY_ARCHLABEL, exar->ai.label, FSA_MAX_LABELLEN, NULL)!=0)
+    if (dico_get_data(*dicomainhead, MAINHEADSEC_STD, MAINHEADKEY_ARCHLABEL, exar->ai.label, FSA_MAX_LABELLEN, NULL)!=0)
     {   errprintf("cannot find MAINHEADKEY_ARCHLABEL in main-header\n");
         return -1;
     }
     
-    if (dico_get_u32(*dicomainhead, 0, MAINHEADKEY_COMPRESSALGO, &exar->ai.compalgo)!=0)
+    if (dico_get_u32(*dicomainhead, MAINHEADSEC_STD, MAINHEADKEY_COMPRESSALGO, &exar->ai.compalgo)!=0)
     {   errprintf("cannot find MAINHEADKEY_COMPRESSALGO in main-header\n");
         return -1;
     }
     
-    if (dico_get_u32(*dicomainhead, 0, MAINHEADKEY_ENCRYPTALGO, &exar->ai.cryptalgo)!=0)
+    if (dico_get_u32(*dicomainhead, MAINHEADSEC_STD, MAINHEADKEY_ENCRYPTALGO, &exar->ai.cryptalgo)!=0)
     {   errprintf("cannot find MAINHEADKEY_ENCRYPTALGO in main-header\n");
         return -1;
     }
     
-    if (dico_get_u32(*dicomainhead, 0, MAINHEADKEY_COMPRESSLEVEL, &exar->ai.complevel)!=0)
+    if (dico_get_u32(*dicomainhead, MAINHEADSEC_STD, MAINHEADKEY_COMPRESSLEVEL, &exar->ai.complevel)!=0)
     {   errprintf("cannot find MAINHEADKEY_COMPRESSLEVEL in main-header\n");
         return -1;
     }
     
-    if (dico_get_u32(*dicomainhead, 0, MAINHEADKEY_FSACOMPLEVEL, &exar->ai.fsacomp)!=0)
+    if (dico_get_u32(*dicomainhead, MAINHEADSEC_STD, MAINHEADKEY_FSACOMPLEVEL, &exar->ai.fsacomp)!=0)
     {   errprintf("cannot find MAINHEADKEY_FSACOMPLEVEL in main-header\n");
         return -1;
     }
     
-    if (dico_get_u64(*dicomainhead, 0, MAINHEADKEY_CREATTIME, &exar->ai.creattime)!=0)
+    if (dico_get_u64(*dicomainhead, MAINHEADSEC_STD, MAINHEADKEY_CREATTIME, &exar->ai.creattime)!=0)
     {   errprintf("cannot find MAINHEADKEY_CREATTIME in main-header\n");
         return -1;
     }
     
     // MAINHEADKEY_HASDIRSINFOHEAD has been introduced in fsarchiver-0.6.7: don't fail if missing
-    if (dico_get_u32(*dicomainhead, 0, MAINHEADKEY_HASDIRSINFOHEAD, &temp32)==0)
+    if (dico_get_u32(*dicomainhead, MAINHEADSEC_STD, MAINHEADKEY_HASDIRSINFOHEAD, &temp32)==0)
         exar->ai.hasdirsinfohead=temp32;
     
     // check the file format. New versions based on "FsArCh_002" also understand "FsArCh_001" which is very close (and "FsArCh_00Y"=="FsArCh_001")
@@ -1120,7 +1124,7 @@ int extractar_read_mainhead(cextractar *exar, cdico **dicomainhead)
     }
     
     // read minimum fsarchiver version requirement
-    if (dico_get_u64(*dicomainhead, 0, MAINHEADKEY_MINFSAVERSION, &exar->ai.minfsaver)!=0)
+    if (dico_get_u64(*dicomainhead, MAINHEADSEC_STD, MAINHEADKEY_MINFSAVERSION, &exar->ai.minfsaver)!=0)
         exar->ai.minfsaver=FSA_VERSION_BUILD(0, 0, 0, 0); // not defined
     
     // if encryption is enabled, check the password is correct using the encrypted random buffer saved in the archive
@@ -1128,11 +1132,11 @@ int extractar_read_mainhead(cextractar *exar, cdico **dicomainhead)
     {
         memset(md5sumar, 0, sizeof(md5sumar));
         memset(md5sumnew, 0, sizeof(md5sumnew));
-        if (dico_get_data(*dicomainhead, 0, MAINHEADKEY_BUFCHECKPASSCRYPTBUF, bufcheckcrypt, sizeof(bufcheckcrypt), &cryptbufsize)!=0)
+        if (dico_get_data(*dicomainhead, MAINHEADSEC_STD, MAINHEADKEY_BUFCHECKPASSCRYPTBUF, bufcheckcrypt, sizeof(bufcheckcrypt), &cryptbufsize)!=0)
         {   errprintf("cannot find MAINHEADKEY_BUFCHECKPASSCRYPTBUF in main-header\n");
             return -1;
         }
-        if (dico_get_data(*dicomainhead, 0, MAINHEADKEY_BUFCHECKPASSCLEARMD5, md5sumar, sizeof(md5sumar)+99, NULL)!=0)
+        if (dico_get_data(*dicomainhead, MAINHEADSEC_STD, MAINHEADKEY_BUFCHECKPASSCLEARMD5, md5sumar, sizeof(md5sumar)+99, NULL)!=0)
         {   errprintf("cannot find MAINHEADKEY_BUFCHECKPASSCLEARMD5 in main-header\n");
             return -1;
         }
@@ -1211,7 +1215,7 @@ int extractar_filesystem_extract(cextractar *exar, cdico *dicofs, cstrdico *dico
         return -1;
     }
     
-    // ---- read filesystem-header from archive
+    // read filesystem-header from archive
     if (queue_dequeue_header(&g_queue, &dicobegin, magic, NULL)<=0)
     {   errprintf("queue_dequeue_header() failed: cannot read file system dico\n");
         return -1;
@@ -1307,17 +1311,18 @@ filesystem_extract_umount:
     return ret;
 }
 
-int oper_restore(char *archive, int argc, char **argv, int oper)
+int restore(char *archive, int argc, char **argv, int oper)
 {
     cdico *dicofsinfo[FSA_MAX_FSPERARCH];
     cstrdico *dicoargv[FSA_MAX_FSPERARCH];
     pthread_t thread_decomp[FSA_MAX_COMPJOBS];
     char magic[FSA_SIZEOF_MAGIC+1];
     cdico *dicomainhead=NULL;
+    char *destdir=argv[0];
     cdico *dirsinfo=NULL;
+    char restptbuf[65535];
     pthread_t thread_reader;
     struct stat64 st;
-    char *destdir;
     cextractar exar;
     u64 totalerr=0;
     u64 fscost;
@@ -1351,7 +1356,7 @@ int oper_restore(char *archive, int argc, char **argv, int oper)
     {
         case OPER_RESTFS:
             // convert the arguments from the command line to dico
-            if (convert_argv_to_strdicos(dicoargv, argc, argv)!=0)
+            if (convert_argv_to_strdicos(dicoargv, argc, argv, "id,dest,mkfs")!=0)
             {   msgprintf(MSG_STACK, "convert_argv_to_dico() failed\n");
                 goto do_extract_error;
             }
@@ -1360,11 +1365,18 @@ int oper_restore(char *archive, int argc, char **argv, int oper)
                 g_fsbitmap[i]=!!(dicoargv[i]!=NULL);
             break;
             
-        case OPER_RESTDIR: // the files are all considered as belonging to fsid==0
+       case OPER_RESTDIR: // the files are all considered as belonging to fsid==0
             g_fsbitmap[0]=1;
             break;
-    }
-
+            
+        case OPER_RESTPT:
+            // convert the arguments from the command line to dico
+            if (convert_argv_to_strdicos(dicoargv, argc, argv, "id,dest")!=0)
+            {   msgprintf(MSG_STACK, "convert_argv_to_dico() failed\n");
+                goto do_extract_error;
+            }
+     }
+    
     // create decompression threads
     for (i=0; (i<g_options.compressjobs) && (i<FSA_MAX_COMPJOBS); i++)
     {
@@ -1383,11 +1395,6 @@ int oper_restore(char *archive, int argc, char **argv, int oper)
     // read archive main header
     if (extractar_read_mainhead(&exar, &dicomainhead)<0)
     {   msgprintf(MSG_STACK, "read_mainhead(%s) failed\n", archive);
-        goto do_extract_error;
-    }
-    
-    if (oper==OPER_ARCHINFO && archinfo_show_mainhead(&exar.ai, dicomainhead)!=0)
-    {   errprintf("archinfo_show_mainhead(%s) failed\n", archive);
         goto do_extract_error;
     }
     
@@ -1410,107 +1417,48 @@ int oper_restore(char *archive, int argc, char **argv, int oper)
     // check that the operation requested on the command line matches the archive type
     switch (exar.ai.archtype)
     {
-        case ARCHTYPE_DIRECTORIES:
-            if (oper==OPER_RESTFS)
-            {   errprintf("this archive does not contain filesystems, cannot use \"restfs\". Try \"restdir\" instead.\n");
+        case ARCHTYPE_FILESYSTEMS:
+            if (oper!=OPER_RESTFS && oper!=OPER_RESTPT && oper!=OPER_SHOWPT && oper!=OPER_ARCHINFO)
+            {   errprintf("this archive contains filesystems. The command is not appropriate for that type of archive\n");
                 goto do_extract_error;
             }
             break;
-        case ARCHTYPE_FILESYSTEMS:
-            if (oper==OPER_RESTDIR)
-            {   errprintf("this archive does not contain simple directories, cannot use \"restdir\". Try \"restfs\" instead.\n");
+        case ARCHTYPE_DIRECTORIES:
+            if (oper!=OPER_RESTDIR && oper!=OPER_ARCHINFO)
+            {   errprintf("this archive contains flat files & directories. The command is not appropriate for that type of archive\n");
                 goto do_extract_error;
             }
             break;
         default:
             errprintf("this archive has an unknown type: %d, cannot continue\n", exar.ai.archtype);
             goto do_extract_error;
+            break;
     }
     
-    // check the user did not specify an invalid filesystem id (id >= fscount)
-    for (i=0; (i<FSA_MAX_FSPERARCH); i++)
-    {
-        if ((dicoargv[i]!=NULL) && (i >= exar.ai.fscount))
-        {   errprintf("invalid filesystem id: [%d]. the filesystem id must be an integer between 0 and %d\n", (int)i, (int)(exar.ai.fscount-1));
-            goto do_extract_error;
-        }
+    // check that password has been provided if necessary
+    if ((exar.ai.cryptalgo!=ENCRYPT_NONE) && (g_options.encryptalgo!=ENCRYPT_BLOWFISH))
+    {   errprintf("this archive has been encrypted, you have to provide a password on the command line using option '-c'\n");
+        goto do_extract_error;
     }
     
-    // read the fsinfo header for each filesystem
-    for (i=0; (exar.ai.archtype==ARCHTYPE_FILESYSTEMS) && (i < exar.ai.fscount) && (i<FSA_MAX_FSPERARCH); i++)
+    // check arguments are valid
+    switch (oper)
     {
-        // ---- read filesystem-header from archive
-        if (queue_dequeue_header(&g_queue, &dicofsinfo[i], magic, NULL)<=0)
-        {   errprintf("queue_dequeue_header() failed: cannot read filesystem-info dico\n");
-            goto do_extract_error;
-        }
-        
-        if (memcmp(magic, FSA_MAGIC_FSIN, FSA_SIZEOF_MAGIC)!=0)
-        {   errprintf("header is not what we expected: found=[%s] and expected=[%s]\n", magic, FSA_MAGIC_FSIN);
-            goto do_extract_error;
-        }
-        
-        if (oper==OPER_ARCHINFO && archinfo_show_fshead(dicofsinfo[i], i)!=0)
-        {   errprintf("archinfo_show_fshead() failed\n");
-            goto do_extract_error;
-        }
-        
-        // calculate total cost of the restfs
-        if ((dicoargv[i]!=NULL) && (dico_get_u64(dicofsinfo[i], 0, FSYSHEADKEY_TOTALCOST, &fscost)==0))
-            exar.cost_global+=fscost;
-    }
-    
-    // read the dirsinfo header which contains the statistrics (only if this header is present)
-    // the support for that header has been introduced in fsarchiver-0.6.7, but this will be
-    // written in archives later when most users have upgraded to fsarchiver >= 0.6.7
-    // so that they don't have error when they try to restore an archive which has that header
-    if ((exar.ai.archtype==ARCHTYPE_DIRECTORIES) && (exar.ai.hasdirsinfohead==true))
-    {
-        if (queue_dequeue_header(&g_queue, &dirsinfo, magic, NULL)<=0)
-        {   errprintf("queue_dequeue_header() failed: cannot read the dirsinfo header\n");
-            goto do_extract_error;
-        }
-        if (memcmp(magic, FSA_MAGIC_DIRS, FSA_SIZEOF_MAGIC)!=0)
-        {   errprintf("header is not what we expected: found=[%s] and expected=[%s]\n", magic, FSA_MAGIC_DIRS);
-            goto do_extract_error;
-        }
-        if ((dirsinfo!=NULL) && (dico_get_u64(dirsinfo, 0, DIRSINFOKEY_TOTALCOST, &exar.cost_global)!=0))
-        {   errprintf("cannot read DIRSINFOKEY_TOTALCOST in dirsinfo\n");
-            goto do_extract_error;
-        }
-    }
-    
-    if ((oper==OPER_RESTFS) || (oper==OPER_RESTDIR))
-    {
-        if ((exar.ai.cryptalgo!=ENCRYPT_NONE) && (g_options.encryptalgo!=ENCRYPT_BLOWFISH))
-        {   errprintf("this archive has been encrypted, you have to provide a password on the command line using option '-c'\n");
-            goto do_extract_error;
-        }
-    
-        if (exar.ai.archtype==ARCHTYPE_FILESYSTEMS)
-        {
-            // extract filesystem contents
-            for (i=0; (i < exar.ai.fscount) && (i < FSA_MAX_FSPERARCH) && (get_abort()==false); i++)
-            {
-                if (dicoargv[i]!=NULL) // that filesystem has been requested on the command line
-                {
-                    exar.fsid=i;
-                    memset(&exar.stats, 0, sizeof(exar.stats)); // init stats to zero
-                    msgprintf(MSG_VERB1, "============= extracting filesystem %d =============\n", i);
-                    if (extractar_filesystem_extract(&exar, dicofsinfo[i], dicoargv[i])!=0)
-                    {   msgprintf(MSG_STACK, "extract_filesystem(%d) failed\n", i);
-                        goto do_extract_error;
-                    }
-                    if (get_abort()==false)
-                        stats_show(exar.stats, i);
-                    totalerr+=stats_errcount(exar.stats);
-                }
-                // else: the thread_archio automatically skips filesystem when g_fsbitmap[fsid]==0
+        case OPER_RESTFS:
+            if (exar.ai.fscount<=0)
+            {   errprintf("this archive contain no filesystem: %s\n", archive);
+                goto do_extract_error;
             }
-        }
-        else if (exar.ai.archtype==ARCHTYPE_DIRECTORIES)
-        {
-            exar.fsid=0;
+            for (i=0; i<FSA_MAX_FSPERARCH; i++)
+            {
+                if ((dicoargv[i]!=NULL) && (i >= exar.ai.fscount))
+                {   errprintf("invalid filesystem id: [%d]. the filesystem id must be an integer between 0 and %d\n", (int)i, (int)(exar.ai.fscount-1));
+                    goto do_extract_error;
+                }
+            }
+            break;
+    
+        case OPER_RESTDIR:
             destdir=argv[0];
             if (stat64(destdir, &st)!=0)
             {   
@@ -1530,7 +1478,82 @@ int oper_restore(char *archive, int argc, char **argv, int oper)
             {   errprintf("%s is not a valid directory, cannot continue\n", destdir);
                 goto do_extract_error;
             }
+            break;
             
+        case OPER_RESTPT:
+            for (i=0; i<FSA_MAX_PTPERARCH; i++)
+            {
+                if ((dicoargv[i]!=NULL) && (i >= exar.ai.ptcount))
+                {   errprintf("invalid partition-table id: [%d]. the partition-table id must be an integer between 0 and %d\n", 
+                        (int)i, (int)(exar.ai.ptcount-1));
+                    goto do_extract_error;
+                }
+            }
+            // fallthrough
+        case OPER_SHOWPT:
+            if (exar.ai.ptcount<=0)
+            {   errprintf("this archive contain no partition-table: %s\n", archive);
+                goto do_extract_error;
+            }
+            break;
+    }
+    
+    // read the fsinfo header for each filesystem and calculate total cost of the restfs
+    for (i=0; (exar.ai.archtype==ARCHTYPE_FILESYSTEMS) && (i < exar.ai.fscount) && (i<FSA_MAX_FSPERARCH); i++)
+    {
+        if (queue_dequeue_header(&g_queue, &dicofsinfo[i], magic, NULL)<=0)
+        {   errprintf("queue_dequeue_header() failed: cannot read filesystem-info dico\n");
+            goto do_extract_error;
+        }
+        if (memcmp(magic, FSA_MAGIC_FSIN, FSA_SIZEOF_MAGIC)!=0)
+        {   errprintf("header is not what we expected: found=[%s] and expected=[%s]\n", magic, FSA_MAGIC_FSIN);
+            goto do_extract_error;
+        }
+        if ((dicoargv[i]!=NULL) && (dico_get_u64(dicofsinfo[i], 0, FSYSHEADKEY_TOTALCOST, &fscost)==0))
+            exar.cost_global+=fscost;
+    }
+    
+    // read the dirsinfo header which contains the statistrics (only if this header is present)
+    if ((exar.ai.archtype==ARCHTYPE_DIRECTORIES) && (exar.ai.hasdirsinfohead==true))
+    {
+        if (queue_dequeue_header(&g_queue, &dirsinfo, magic, NULL)<=0)
+        {   errprintf("queue_dequeue_header() failed: cannot read the dirsinfo header\n");
+            goto do_extract_error;
+        }
+        if (memcmp(magic, FSA_MAGIC_DIRS, FSA_SIZEOF_MAGIC)!=0)
+        {   errprintf("header is not what we expected: found=[%s] and expected=[%s]\n", magic, FSA_MAGIC_DIRS);
+            goto do_extract_error;
+        }
+        if ((dirsinfo!=NULL) && (dico_get_u64(dirsinfo, 0, DIRSINFOKEY_TOTALCOST, &exar.cost_global)!=0))
+        {   errprintf("cannot read DIRSINFOKEY_TOTALCOST in dirsinfo\n");
+            goto do_extract_error;
+        }
+    }
+    
+    switch (oper)
+    {
+        case OPER_RESTFS:
+            for (i=0; (i < exar.ai.fscount) && (i < FSA_MAX_FSPERARCH) && (get_abort()==false); i++)
+            {
+                if (dicoargv[i]!=NULL) // that filesystem has been requested on the command line
+                {
+                    exar.fsid=i;
+                    memset(&exar.stats, 0, sizeof(exar.stats)); // init stats to zero
+                    msgprintf(MSG_VERB1, "============= extracting filesystem %d =============\n", i);
+                    if (extractar_filesystem_extract(&exar, dicofsinfo[i], dicoargv[i])!=0)
+                    {   msgprintf(MSG_STACK, "extract_filesystem(%d) failed\n", i);
+                        goto do_extract_error;
+                    }
+                    if (get_abort()==false)
+                        stats_show(exar.stats, i);
+                    totalerr+=stats_errcount(exar.stats);
+                }
+                // else: the thread_archio automatically skips filesystem when g_fsbitmap[fsid]==0
+            }
+            break;
+            
+        case OPER_RESTDIR:
+            exar.fsid=0;
             memset(&exar.stats, 0, sizeof(exar.stats)); // init stats to zero
             if (extractar_extract_read_objects(&exar, &errors, destdir, 0)!=0) // TODO: get the right fstype
             {   errprintf("extract_read_objects(%s) failed\n", destdir);
@@ -1538,11 +1561,53 @@ int oper_restore(char *archive, int argc, char **argv, int oper)
             }
             stats_show(exar.stats, 0);
             totalerr+=stats_errcount(exar.stats);
-        }
-        else
-        {   errprintf("unsupported archtype: %d\n", exar.ai.archtype);
-            goto do_extract_error;
-        }
+            break;
+            
+        case OPER_RESTPT:
+            for (i=0; (i < exar.ai.ptcount) && (i < FSA_MAX_PTPERARCH) && (get_abort()==false); i++)
+            {
+                if (dicoargv[i]!=NULL) // that parttable has been requested on the command line
+                {
+                    if (dico_get_string(dicomainhead, MAINHEADSEC_PARTTABLE, i, restptbuf, (u16)sizeof(restptbuf))<0)
+                    {   errprintf("dico_get_string(%d, %d) failed to read the partition table description\n", MAINHEADSEC_PARTTABLE, i);
+                        goto do_extract_error;
+                    }
+                    if (restpt(restptbuf, i, dicoargv[i])!=0)
+                    {   msgprintf(MSG_STACK, "restpt() failed to restore partition table number %d\n", i);
+                        goto do_extract_error;
+                    }
+                }
+            }
+            break;
+            
+        case OPER_SHOWPT:
+            //msgprintf(MSG_FORCE, "[ID] [==ORIG-DEVICE===] [=ORIG-SIZE=] [========ORIG-MODEL=========] [DISKLABEL]\n");
+            for (i=0; (i < exar.ai.ptcount) && (i < FSA_MAX_PTPERARCH) && (get_abort()==false); i++)
+            {
+                if (dico_get_string(dicomainhead, MAINHEADSEC_PARTTABLE, i, restptbuf, (u16)sizeof(restptbuf))<0)
+                {   errprintf("dico_get_string(%d, %d) failed to read the partition table description\n", MAINHEADSEC_PARTTABLE, i);
+                    goto do_extract_error;
+                }
+                if (showpt(restptbuf, i)!=0)
+                {   msgprintf(MSG_STACK, "showpt() failed to restore partition table number %d\n", i);
+                    goto do_extract_error;
+                }
+            }
+            break;
+            
+        case OPER_ARCHINFO:
+            if (archinfo_show_mainhead(&exar.ai, dicomainhead)!=0)
+            {   errprintf("archinfo_show_mainhead(%s) failed\n", archive);
+                goto do_extract_error;
+            }
+            for (i=0; (exar.ai.archtype==ARCHTYPE_FILESYSTEMS) && (i < exar.ai.fscount) && (i<FSA_MAX_FSPERARCH); i++)
+            {
+                if (oper==OPER_ARCHINFO && archinfo_show_fshead(dicofsinfo[i], i)!=0)
+                {   errprintf("archinfo_show_fshead() failed\n");
+                    goto do_extract_error;
+                }
+            }
+            break;
     }
     
     if (get_abort()==true)

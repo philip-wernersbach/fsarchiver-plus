@@ -36,6 +36,14 @@ struct s_devinfo
     u64  rdev;
 };
 
+struct s_diskinfo
+{
+    bool detailed;
+    char format[256];
+    char title[256];
+};
+
+int get_partlist(struct s_devinfo *blkdev, int maxblkdev, int *diskcount, int *partcount);
 int get_devinfo(struct s_devinfo *outdev, char *indevname);
 
 #endif // __DEVINFO_H__

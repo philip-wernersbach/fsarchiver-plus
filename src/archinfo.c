@@ -62,8 +62,10 @@ int archinfo_show_mainhead(carchreader *ai, cdico *dicomainhead)
     
     msgprintf(MSG_FORCE, "====================== archive information ======================\n");
     msgprintf(MSG_FORCE, "Archive type: \t\t\t%s\n", (ai->archtype==ARCHTYPE_FILESYSTEMS)?"filesystems":"flat files");
-    if ((ai->archtype==ARCHTYPE_FILESYSTEMS))
-        msgprintf(0, "Filesystems count: \t\t%ld\n", (long)ai->fscount);
+    if (ai->archtype==ARCHTYPE_FILESYSTEMS)
+    {   msgprintf(0, "Filesystems count: \t\t%ld\n", (long)ai->fscount);
+        msgprintf(0, "Partition tables count: \t%ld\n", (long)ai->ptcount);
+    }
     msgprintf(MSG_FORCE, "Archive id: \t\t\t%.8x\n", (unsigned int)ai->archid);
     msgprintf(MSG_FORCE, "Archive file format: \t\t%s\n", ai->filefmt);
     msgprintf(MSG_FORCE, "Archive created with: \t\t%s\n", ai->creatver);
@@ -83,13 +85,13 @@ int archinfo_show_fshead(cdico *dicofshead, int fsid)
 {
     char magic[FSA_SIZEOF_MAGIC+1];
     char fsbuf[FSA_MAX_FSNAMELEN];
-    u64 temp64;
-    u64 fsbytestotal;
-    u64 fsbytesused;
     char buffer[256];
     char fslabel[256];
     char fsuuid[256];
     char fsorigdev[256];
+    u64 fsbytestotal;
+    u64 fsbytesused;
+    u64 temp64;
     
     // init
     memset(magic, 0, sizeof(magic));

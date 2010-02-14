@@ -15,11 +15,9 @@
  * Homepage: http://www.fsarchiver.org
  */
 
-#ifndef __OPER_RESTORE_H__
-#define __OPER_RESTORE_H__
+#ifndef __LAYOUT_SAVE_H__
+#define __LAYOUT_SAVE_H__
 
-#include "dico.h"
+int savept(cdico *dico, int dicsection);
 
-int oper_restore(char *archive, int argc, char **argv, int oper);
-
-#endif // __OPER_RESTORE_H__
+#endif // __LAYOUT_SAVE_H__

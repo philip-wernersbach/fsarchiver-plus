@@ -28,9 +28,9 @@
 #include "fsarchiver.h"
 #include "dico.h"
 #include "common.h"
-#include "oper_restore.h"
-#include "oper_save.h"
-#include "oper_probe.h"
+#include "restore.h"
+#include "save.h"
+#include "probe.h"
 #include "archinfo.h"
 #include "syncthread.h"
 #include "comp_lzo.h"
@@ -39,6 +39,8 @@
 #include "logfile.h"
 #include "error.h"
 #include "queue.h"
+#include "layout_save.h"
+#include "layout_rest.h"
 
 char *valid_magic[]={FSA_MAGIC_MAIN, FSA_MAGIC_VOLH, FSA_MAGIC_VOLF, 
     FSA_MAGIC_FSIN, FSA_MAGIC_FSYB, FSA_MAGIC_DATF, FSA_MAGIC_OBJT, 
@@ -63,14 +65,18 @@ void usage(char *progname, bool examples)
     msgprintf(MSG_FORCE, " * restfs: restore filesystems from an archive (overwrites the existing data)\n");
     msgprintf(MSG_FORCE, " * savedir: save directories to the archive (similar to a compressed tarball)\n");
     msgprintf(MSG_FORCE, " * restdir: restore data from an archive which is not based on a filesystem\n");
+    msgprintf(MSG_FORCE, " * savept: save partition tables of the local disks to an archive (safe)\n");
+    msgprintf(MSG_FORCE, " * restpt: restore partition table of a local disk from an archive (dangerous)\n");
+    msgprintf(MSG_FORCE, " * showpt: show partition tables which have been save in an archive\n");
     msgprintf(MSG_FORCE, " * archinfo: show information about an existing archive file and its contents\n");
-    msgprintf(MSG_FORCE, " * probe [detailed]: show list of filesystems detected on the disks\n");
+    msgprintf(MSG_FORCE, " * probe [-v]: show list of local disks and filesystems\n");
     msgprintf(MSG_FORCE, "<options>\n");
     msgprintf(MSG_FORCE, " -o: overwrite the archive if it already exists instead of failing\n");
     msgprintf(MSG_FORCE, " -v: verbose mode (can be used several times to increase the level of details)\n");
     msgprintf(MSG_FORCE, " -d: debug mode (can be used several times to increase the level of details)\n");
     msgprintf(MSG_FORCE, " -A: allow to save a filesystem which is mounted in read-write (live backup)\n");
     msgprintf(MSG_FORCE, " -a: allow running savefs when partition mounted without the acl/xattr options\n");
+    msgprintf(MSG_FORCE, " -N: do not save a copy the partition tables of local disks during the savefs\n");
     msgprintf(MSG_FORCE, " -e <pattern>: exclude files and directories that match that pattern\n");
     msgprintf(MSG_FORCE, " -L <label>: set the label of the archive (comment about the contents)\n");
     msgprintf(MSG_FORCE, " -z <level>: compression level from 1 (very fast)  to  9 (very good) default=3\n");
@@ -114,6 +120,12 @@ void usage(char *progname, bool examples)
         msgprintf(MSG_FORCE, "   fsarchiver restdir /data/linux-sources.fsa /tmp/extract\n");
         msgprintf(MSG_FORCE, " * \e[1mshow information about an archive and its file systems:\e[0m\n");
         msgprintf(MSG_FORCE, "   fsarchiver archinfo /data/myarchive2.fsa\n");
+        msgprintf(MSG_FORCE, " * \e[1msave description of the partition tables of local disks:\e[0m\n");
+        msgprintf(MSG_FORCE, "   fsarchiver savept /data/myarchive.fsa\n");
+        msgprintf(MSG_FORCE, " * \e[1mshow partition tables descriptions saved in an archive file:\e[0m\n");
+        msgprintf(MSG_FORCE, "   fsarchiver showpt /data/myarchive.fsa\n");
+        msgprintf(MSG_FORCE, " * \e[1mrecreate partition table on /dev/sdb from first description saved:\e[0m\n");
+        msgprintf(MSG_FORCE, "   fsarchiver restpt /data/myarchive.fsa id=0,dest=/dev/sdb\n");
     }
 }
 
@@ -122,6 +134,7 @@ static struct option const long_options[] =
     {"overwrite", no_argument, NULL, 'o'},
     {"allow-no-acl-xattr", no_argument, NULL, 'a'},
     {"allow-rw-mounted", no_argument, NULL, 'A'},
+    {"nosavept", no_argument, NULL, 'N'},
     {"verbose", no_argument, NULL, 'v'},
     {"debug", no_argument, NULL, 'd'},
     {"compress", required_argument, NULL, 'z'},
@@ -137,7 +150,7 @@ static struct option const long_options[] =
 
 int process_cmdline(int argc, char **argv)
 {
-    char *partition[FSA_MAX_FSPERARCH];
+    //char *partition[FSA_MAX_FSPERARCH];
     bool runasroot=true;
     char *probemode;
     sigset_t mask_set;
@@ -146,20 +159,21 @@ int process_cmdline(int argc, char **argv)
     char *archive=NULL;
     char tempbuf[1024];
     char *progname;
-    int fscount;
+    //int fscount;
     int argcok;
     int ret=0;
     int cmd;
     int c;
     
     // init
-    memset(partition, 0, sizeof(partition));
+    //memset(partition, 0, sizeof(partition));
     progname=argv[0];
     
     // set default options
     g_options.overwrite=false;
     g_options.allowsaverw=false;
     g_options.dontcheckmountopts=false;
+    g_options.nosavept=false;
     g_options.verboselevel=0;
     g_options.debuglevel=0;
     g_options.compressjobs=1;
@@ -171,7 +185,7 @@ int process_cmdline(int argc, char **argv)
     snprintf(g_options.archlabel, sizeof(g_options.archlabel), "<none>");
     g_options.encryptpass[0]=0;
     
-    while ((c = getopt_long(argc, argv, "oaAvdz:j:hVs:c:L:e:", long_options, NULL)) != EOF)
+    while ((c = getopt_long(argc, argv, "oaAvdz:j:hVs:c:L:e:N", long_options, NULL)) != EOF)
     {
         switch (c)
         {
@@ -183,6 +197,9 @@ int process_cmdline(int argc, char **argv)
                 break;
             case 'A': // allows to backup read/write mounted partition
                 g_options.allowsaverw=true;
+                break;
+            case 'N': // do not save partition tables
+                g_options.nosavept=true;
                 break;
             case 'v': // verbose mode
                 g_options.verboselevel++;
@@ -269,7 +286,6 @@ int process_cmdline(int argc, char **argv)
     
     // calculate threshold for small files that are compressed together
     g_options.smallfilethresh=min(g_options.datablocksize/4, FSA_MAX_SMALLFILESIZE);
-    msgprintf(MSG_DEBUG1, "Files smaller than %ld will be packed with other small files\n", (long)g_options.smallfilethresh);
     
     // convert commands to integers
     if (strcmp(command, "savefs")==0)
@@ -302,6 +318,21 @@ int process_cmdline(int argc, char **argv)
         runasroot=true;
         argcok=(argc<=1);
     }
+    else if (strcmp(command, "savept")==0)
+    {   cmd=OPER_SAVEPT;
+        runasroot=true;
+        argcok=(argc==1);
+    }
+    else if (strcmp(command, "restpt")==0)
+    {   cmd=OPER_RESTPT;
+        runasroot=true;
+        argcok=(argc>=2);
+    }
+    else if (strcmp(command, "showpt")==0)
+    {   cmd=OPER_SHOWPT;
+        runasroot=false;
+        argcok=(argc==1);
+    }
     else // command not found
     {   errprintf("[%s] is not a valid command.\n", command);
         usage(progname, false);
@@ -329,6 +360,9 @@ int process_cmdline(int argc, char **argv)
         case OPER_SAVEDIR:
         case OPER_RESTDIR:
         case OPER_ARCHINFO:
+        case OPER_SAVEPT:
+        case OPER_RESTPT:
+        case OPER_SHOWPT:
             archive=*argv++, argc--;
             break;
         case OPER_PROBE:
@@ -344,8 +378,8 @@ int process_cmdline(int argc, char **argv)
     }
     
     // list of partitions to backup/restore
-    for (fscount=0; (fscount < argc) && (argv[fscount]); fscount++)
-        partition[fscount]=argv[fscount];
+    /*for (fscount=0; (fscount < argc) && (argv[fscount]); fscount++)
+        partition[fscount]=argv[fscount];*/
     
     // install signal handlers
     sigemptyset(&mask_set);
@@ -359,15 +393,18 @@ int process_cmdline(int argc, char **argv)
     switch (cmd)
     {
         case OPER_SAVEFS:
-            ret=oper_save(archive, fscount, partition, ARCHTYPE_FILESYSTEMS);
+        case OPER_SAVEPT:
+            ret=save(archive, argc, argv, ARCHTYPE_FILESYSTEMS);
             break;
         case OPER_SAVEDIR:
-            ret=oper_save(archive, fscount, partition, ARCHTYPE_DIRECTORIES);
+            ret=save(archive, argc, argv, ARCHTYPE_DIRECTORIES);
             break;
         case OPER_RESTFS:
         case OPER_RESTDIR:
         case OPER_ARCHINFO:
-            ret=oper_restore(archive, fscount, partition, cmd);
+        case OPER_RESTPT:
+        case OPER_SHOWPT:
+            ret=restore(archive, argc, argv, cmd);
             break;
         case OPER_PROBE:
             ret=oper_probe(probedetailed);

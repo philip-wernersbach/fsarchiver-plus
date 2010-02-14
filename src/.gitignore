@@ -1,5 +1,5 @@
 Makefile.in
-.deps
 Makefile
 fsarchiver
+.deps
 

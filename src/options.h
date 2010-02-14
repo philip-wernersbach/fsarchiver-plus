@@ -28,6 +28,7 @@ struct s_options
 {   bool     overwrite;
     bool     allowsaverw;
     bool     dontcheckmountopts;
+    bool     nosavept;
     int      verboselevel;
     int      debuglevel;
     int      compresslevel;

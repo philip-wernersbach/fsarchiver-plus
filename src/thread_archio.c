@@ -158,7 +158,7 @@ void *thread_reader_fct(void *args)
         goto thread_reader_fct_error; // this header is required to continue
     }
     
-    if (dico_get_u32(dico, 0, MAINHEADKEY_ARCHIVEID, &ai->archid)!=0)
+    if (dico_get_u32(dico, MAINHEADSEC_STD, MAINHEADKEY_ARCHIVEID, &ai->archid)!=0)
     {   msgprintf(3, "cannot get archive-id from main header\n");
         goto thread_reader_fct_error;
     }

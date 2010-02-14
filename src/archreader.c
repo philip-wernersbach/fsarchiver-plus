@@ -62,8 +62,9 @@ int archreader_destroy(carchreader *ai)
 int archreader_open(carchreader *ai)
 {   
     struct stat64 st;
-    char volhead[4096];
+    char volhead[96];
     int magiclen;
+    int res;
     
     assert(ai);
     
@@ -86,8 +87,8 @@ int archreader_open(carchreader *ai)
     }
     
     // read file format version and rewind to beginning of the volume
-    if (read(ai->archfd, volhead, sizeof(volhead))!=sizeof(volhead))
-    {   sysprintf("cannot read magic from %s\n", ai->volpath);
+    if ( (res=read(ai->archfd, volhead, sizeof(volhead)))!=sizeof(volhead))
+    {   sysprintf("cannot read magic from %s: read()=%d\n", ai->volpath, res);
         close(ai->archfd);
         return -1;
     }

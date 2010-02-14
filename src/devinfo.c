@@ -35,6 +35,104 @@
 #include "fs_ext2.h"
 #include "error.h"
 
+int get_partlist(struct s_devinfo *blkdev, int maxblkdev, int *diskcount, int *partcount)
+{
+    struct s_devinfo blkdev1[FSA_MAX_BLKDEVICES];
+    struct s_devinfo tmpdev;
+    int best; // index of the best item found in old array
+    int pos=0; // pos of latest item in new array
+    char devname[1024];
+    char longname[1024];
+    char delims[]=" \t\n";
+    char line[1024];
+    char *saveptr;
+    char *result;
+    char major[256];
+    char minor[256];
+    FILE *fpart;
+    int count=0;
+    int i, j;
+    
+    // init
+    *diskcount=0;
+    *partcount=0;
+    
+    // browse list in "/proc/partitions"
+    if ((fpart=fopen("/proc/partitions","rb"))==NULL)
+        return -1;
+    while(!feof(fpart) && (count < FSA_MAX_BLKDEVICES) && (count < maxblkdev))
+    {
+        if (stream_readline(fpart, line, sizeof(line))>1)
+        {
+            minor[0]=major[0]=0;
+            devname[0]=0;
+            result=strtok_r(line, delims, &saveptr);
+            
+            for(i=0; result != NULL && i<=4; i++)
+            {
+                switch(i)
+                {
+                    case 0: // col0 = major
+                        snprintf(major, sizeof(major), "%s", result);
+                        break;
+                    case 1: // col1 = minor
+                        snprintf(minor, sizeof(minor), "%s", result);
+                        break;
+                    case 3: // col3 = devname
+                        snprintf(devname, sizeof(devname), "%s", result);
+                        break;
+                }
+                result = strtok_r(NULL, delims, &saveptr);
+            }
+            
+            // ignore invalid entries
+            if ((strlen(devname)==0) || (atoi(major)==0 && atoi(minor)==0))
+                continue;
+            snprintf(longname, sizeof(longname), "/dev/%s", devname);
+            if (get_devinfo(&tmpdev, longname)!=0)
+               continue; // to to the next part
+            
+            // check that this device is not already in the list
+            for (i=0; i < count; i++)
+                if (blkdev1[i].rdev==tmpdev.rdev)
+                    continue; // to to the next part
+            
+            // add the device to list if it is a real device and it's not already in the list
+            blkdev1[count++]=tmpdev;
+        }
+    }
+    
+    fclose(fpart);
+    
+    // ---- 2. sort the devices
+    for (pos=0, i=0; i<count; i++)
+    {
+        // set best to the first available item in the old array
+        for (j=0, best=-1; (j<count) && (best==-1); j++)
+            if (blkdev1[j].rdev!=0)
+                best=j;
+        // find the index of the best item in the old array
+        for (j=0; j<count; j++)
+            if ((blkdev1[j].rdev > 0) && (blkdev1[j].rdev < blkdev1[best].rdev))
+                best=j;
+        // update counters
+        switch (blkdev1[best].devtype)
+        {
+            case BLKDEV_FILESYSDEV:
+                (*partcount)++;
+                break;
+            case BLKDEV_PHYSDISK:
+                (*diskcount)++;
+                break;                
+        }
+        // move item to the new array
+        blkdev[pos++]=blkdev1[best];
+        blkdev1[best].rdev=0;
+    }
+
+    return count;
+}
+
 int get_devinfo(struct s_devinfo *outdev, char *indevname)
 {
     char sysblkdevname[512];

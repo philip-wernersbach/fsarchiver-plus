@@ -3,12 +3,12 @@
 
 AC_PREREQ(2.59)
 
-AC_INIT([fsarchiver], 0.6.8-svn)
+AC_INIT([fsarchiver], 0.7.0-git)
 AC_DEFINE([PACKAGE_RELDATE], "2010-MM-DD", [Define the date of the release])
 AC_DEFINE([PACKAGE_FILEFMT], "FsArCh_002", [Define the version of the file format])
 AC_DEFINE([PACKAGE_VERSION_A], 0, [Major version number])
-AC_DEFINE([PACKAGE_VERSION_B], 6, [Medium version number])
-AC_DEFINE([PACKAGE_VERSION_C], 8, [Minor version number])
+AC_DEFINE([PACKAGE_VERSION_B], 7, [Medium version number])
+AC_DEFINE([PACKAGE_VERSION_C], 0, [Minor version number])
 AC_DEFINE([PACKAGE_VERSION_D], 0, [Patch version number])
 
 AC_CANONICAL_HOST([])
@@ -86,6 +86,8 @@ PKG_CHECK_MODULES([COM_ERR], [com_err])
 PKG_CHECK_MODULES([E2P], [e2p])
 PKG_CHECK_MODULES([BLKID], [blkid])
 PKG_CHECK_MODULES([UUID], [uuid])
+PKG_CHECK_MODULES([LIBPARTED], [libparted])
+PKG_CHECK_MODULES([LIBXML2], [libxml-2.0])
 
 dnl Check for header files installed with a library
 AC_CHECK_HEADER([attr/xattr.h],, [AC_MSG_ERROR([attr/xattr.h not found. you may have to install a package called attr, libattr, libattr-devel])])

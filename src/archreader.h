@@ -31,6 +31,7 @@ struct s_archreader
 {   int    archfd; // file descriptor of the current volume (set to -1 when closed)
     u32    archid; // 32bit archive id for checking (random number generated at creation)
     u64    fscount; // how many filesystems in archive (valid only if archtype=filesystems)
+    u64    ptcount; // how many partition tables have been saved (valid only if archtype=filesystems)
     u32    archtype; // what has been saved in the archive: filesystems or directories
     u32    curvol; // current volume number, starts at 0, incremented when we change the volume
     u32    compalgo; // compression algorithm which has been used to create the archive

@@ -39,7 +39,7 @@
 #include "archwriter.h"
 #include "options.h"
 #include "common.h"
-#include "oper_save.h"
+#include "save.h"
 #include "strlist.h"
 #include "filesys.h"
 #include "fs_ext2.h"
@@ -51,6 +51,7 @@
 #include "fs_ntfs.h"
 #include "thread_comp.h"
 #include "thread_archio.h"
+#include "layout_save.h"
 #include "syncthread.h"
 #include "regmulti.h"
 #include "crypto.h"
@@ -821,6 +822,7 @@ int createar_write_mainhead(csavear *save, int archtype, int fscount)
     u8 bufcheckcrypt[FSA_CHECKPASSBUF_SIZE+8];
     u64 cryptsize;
     u8 md5sum[16];
+    s64 ptcount;
     struct timeval now;
     cdico *d;
     
@@ -836,24 +838,33 @@ int createar_write_mainhead(csavear *save, int archtype, int fscount)
         return -1;
     }
     
-    dico_add_string(d, 0, MAINHEADKEY_FILEFORMATVER, FSA_FILEFORMAT);
-    dico_add_string(d, 0, MAINHEADKEY_PROGVERCREAT, FSA_VERSION);
-    dico_add_string(d, 0, MAINHEADKEY_ARCHLABEL, g_options.archlabel);
-    dico_add_u64(d, 0, MAINHEADKEY_CREATTIME, now.tv_sec);
-    dico_add_u32(d, 0, MAINHEADKEY_ARCHIVEID, save->ai.archid);
-    dico_add_u32(d, 0, MAINHEADKEY_ARCHTYPE, archtype);
-    dico_add_u32(d, 0, MAINHEADKEY_COMPRESSALGO, g_options.compressalgo);
-    dico_add_u32(d, 0, MAINHEADKEY_COMPRESSLEVEL, g_options.compresslevel);
-    dico_add_u32(d, 0, MAINHEADKEY_ENCRYPTALGO, g_options.encryptalgo);
-    dico_add_u32(d, 0, MAINHEADKEY_FSACOMPLEVEL, g_options.fsacomplevel);
-    dico_add_u32(d, 0, MAINHEADKEY_HASDIRSINFOHEAD, true);
+    dico_add_string(d, MAINHEADSEC_STD, MAINHEADKEY_FILEFORMATVER, FSA_FILEFORMAT);
+    dico_add_string(d, MAINHEADSEC_STD, MAINHEADKEY_PROGVERCREAT, FSA_VERSION);
+    dico_add_string(d, MAINHEADSEC_STD, MAINHEADKEY_ARCHLABEL, g_options.archlabel);
+    dico_add_u64(d, MAINHEADSEC_STD, MAINHEADKEY_CREATTIME, now.tv_sec);
+    dico_add_u32(d, MAINHEADSEC_STD, MAINHEADKEY_ARCHIVEID, save->ai.archid);
+    dico_add_u32(d, MAINHEADSEC_STD, MAINHEADKEY_ARCHTYPE, archtype);
+    dico_add_u32(d, MAINHEADSEC_STD, MAINHEADKEY_COMPRESSALGO, g_options.compressalgo);
+    dico_add_u32(d, MAINHEADSEC_STD, MAINHEADKEY_COMPRESSLEVEL, g_options.compresslevel);
+    dico_add_u32(d, MAINHEADSEC_STD, MAINHEADKEY_ENCRYPTALGO, g_options.encryptalgo);
+    dico_add_u32(d, MAINHEADSEC_STD, MAINHEADKEY_FSACOMPLEVEL, g_options.fsacomplevel);
+    dico_add_u32(d, MAINHEADSEC_STD, MAINHEADKEY_HASDIRSINFOHEAD, true);
     
     // minimum fsarchiver version required to restore that archive
-    dico_add_u64(d, 0, MAINHEADKEY_MINFSAVERSION, FSA_VERSION_BUILD(0, 6, 4, 0));
+    dico_add_u64(d, MAINHEADSEC_STD, MAINHEADKEY_MINFSAVERSION, FSA_VERSION_BUILD(0, 6, 4, 0));
     
     if (archtype==ARCHTYPE_FILESYSTEMS)
     {   
-        dico_add_u64(d, 0, MAINHEADKEY_FSCOUNT, fscount);
+        dico_add_u64(d, MAINHEADSEC_STD, MAINHEADKEY_FSCOUNT, fscount);
+        
+        if (g_options.nosavept==false)
+        {
+            if ((ptcount=savept(d, MAINHEADSEC_PARTTABLE))<0)
+            {   errprintf("savept() failed\n");
+                return -1;
+            }
+            dico_add_u64(d, MAINHEADSEC_STD, MAINHEADKEY_PTCOUNT, ptcount);
+        }
     }
     
     // if encryption is enabled, save the md5sum of a random buffer to check the password
@@ -866,8 +877,8 @@ int createar_write_mainhead(csavear *save, int archtype, int fscount)
         
         gcry_md_hash_buffer(GCRY_MD_MD5, md5sum, bufcheckclear, FSA_CHECKPASSBUF_SIZE);
         
-        assert(dico_add_data(d, 0, MAINHEADKEY_BUFCHECKPASSCLEARMD5, md5sum, 16)==0);
-        assert(dico_add_data(d, 0, MAINHEADKEY_BUFCHECKPASSCRYPTBUF, bufcheckcrypt, FSA_CHECKPASSBUF_SIZE)==0);
+        assert(dico_add_data(d, MAINHEADSEC_STD, MAINHEADKEY_BUFCHECKPASSCLEARMD5, md5sum, 16)==0);
+        assert(dico_add_data(d, MAINHEADSEC_STD, MAINHEADKEY_BUFCHECKPASSCRYPTBUF, bufcheckcrypt, FSA_CHECKPASSBUF_SIZE)==0);
     }
     
     if (queue_add_header(&g_queue, d, FSA_MAGIC_MAIN, FSA_FILESYSID_NULL)!=0)
@@ -1082,7 +1093,7 @@ int createar_oper_savedir(csavear *save, char *rootdir)
     return 0;
 }
 
-int oper_save(char *archive, int argc, char **argv, int archtype)
+int save(char *archive, int argc, char **argv, int archtype)
 {
     pthread_t thread_comp[FSA_MAX_COMPJOBS];
     cdico *dicofsinfo[FSA_MAX_FSPERARCH];
