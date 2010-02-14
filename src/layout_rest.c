@@ -553,8 +553,7 @@ int restpt_show_device(cstrdico *dico, int id)
         return -1;
     }
     
-    msgprintf(MSG_FORCE, "\n");
-    msgprintf(MSG_FORCE, "id=%d: Original disk: [%s] [%s] [%s] (disklabel: %s)\n",
+    msgprintf(MSG_FORCE, "\nid=%d: Original disk: [%s] [%s] [%s] (disklabel: %s)\n",
         id, disk_specs.path, disk_specs.size, disk_specs.model, disk_specs.disklabel);
     
     for (i=1; partcnt <= disk_specs.partcount && i<=MAX_PARTS; i++)
@@ -674,7 +673,7 @@ int restpt(char *partdesc, int id, struct s_strdico *dicocmdline)
         goto restpt_restore_device_cleanup;
     }
     
-    msgprintf(MSG_FORCE, "Partition table has been written on disk=[%s]...\n", destdisk);
+    msgprintf(MSG_FORCE, "Partition table has been written on disk=[%s]\n", destdisk);
        
 restpt_restore_device_cleanup:
     if (dl)

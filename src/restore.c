@@ -1581,7 +1581,6 @@ int restore(char *archive, int argc, char **argv, int oper)
             break;
             
         case OPER_SHOWPT:
-            //msgprintf(MSG_FORCE, "[ID] [==ORIG-DEVICE===] [=ORIG-SIZE=] [========ORIG-MODEL=========] [DISKLABEL]\n");
             for (i=0; (i < exar.ai.ptcount) && (i < FSA_MAX_PTPERARCH) && (get_abort()==false); i++)
             {
                 if (dico_get_string(dicomainhead, MAINHEADSEC_PARTTABLE, i, restptbuf, (u16)sizeof(restptbuf))<0)
@@ -1593,6 +1592,7 @@ int restore(char *archive, int argc, char **argv, int oper)
                     goto do_extract_error;
                 }
             }
+	    msgprintf(MSG_FORCE, "\n");
             break;
             
         case OPER_ARCHINFO:
