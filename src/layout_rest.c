@@ -576,8 +576,8 @@ int restpt_show_device(cstrdico *dico, int id)
     {
         if (convert_dico_to_partition(dico, &pspecs, i)==0)
         {
-            msgprintf(MSG_FORCE, "   -partition=%.2ld start=%.11ld len=%.11ld end=%.11ld (%s)\n", (long)pspecs.num, 
-                (long)pspecs.start, (long)pspecs.length, (long)pspecs.end, pspecs.type);
+            msgprintf(MSG_FORCE, "   -partition=%.2ld start=%.11lld end=%.11lld len=%.11lld (%s)\n", (long)pspecs.num, 
+                (long long)pspecs.start, (long long)pspecs.end, (long long)pspecs.length, pspecs.type);
             partcnt++;
         }
     }
