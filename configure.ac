@@ -88,6 +88,7 @@ PKG_CHECK_MODULES([BLKID], [blkid])
 PKG_CHECK_MODULES([UUID], [uuid])
 PKG_CHECK_MODULES([LIBPARTED], [libparted])
 PKG_CHECK_MODULES([LIBXML2], [libxml-2.0])
+PKG_CHECK_EXISTS([libparted < 2.1], [AC_DEFINE([OLD_PARTED], [], [Set if parted < 2.1])])
 
 dnl Check for header files installed with a library
 AC_CHECK_HEADER([attr/xattr.h],, [AC_MSG_ERROR([attr/xattr.h not found. you may have to install a package called attr, libattr, libattr-devel])])

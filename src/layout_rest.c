@@ -262,6 +262,14 @@ int disklayoutbuilder_create_disk(cdisklayoutbuilder *dl)
         return -1;
     }
     
+    // disable cylinder alignments to respect the original disk layout
+#ifndef OLD_PARTED
+    if (ped_disk_set_flag(dl->disk, PED_DISK_CYLINDER_ALIGNMENT, false)!=1)
+    {   errprintf("ped_disk_set_flag(disk, PED_DISK_CYLINDER_ALIGNMENT, false) failed\n");
+        return -1;
+    }
+#endif // OLD_PARTED
+    
     if ((dl->maxprimary=ped_disk_get_max_primary_partition_count(dl->disk)) < 1)
     {   errprintf("ped_disk_get_max_primary_partition_count() failed\n");
         return -1;
@@ -316,6 +324,14 @@ int disklayoutbuilder_check_conditions(cdisklayoutbuilder *dl)
     char buffer1[512];
     char buffer2[512];
     u64 newdisksize;
+    
+    // check that parted >= 2.1 if sectors != 512
+#ifdef OLD_PARTED
+    if (dl->dev->sector_size!=512)
+    {   errprintf("A newer version of libparted is required to work on devices with sectors bigger than 512 bytes\n");
+        return -1;
+    }
+#endif // OLD_PARTED
     
     // check that the disklabel is supported
     if ((strcmp(dl->disk_specs.disklabel, "msdos")!=0) && (strcmp(dl->disk_specs.disklabel, "gpt")!=0))
