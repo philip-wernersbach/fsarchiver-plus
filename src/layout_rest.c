@@ -263,7 +263,8 @@ int disklayoutbuilder_create_disk(cdisklayoutbuilder *dl)
     
     // disable cylinder alignments to respect the original disk layout
 #ifndef OLD_PARTED
-    if (ped_disk_set_flag(dl->disk, PED_DISK_CYLINDER_ALIGNMENT, false)!=1)
+    if (ped_disk_is_flag_available(dl->disk, PED_DISK_CYLINDER_ALIGNMENT) && 
+        ped_disk_set_flag(dl->disk, PED_DISK_CYLINDER_ALIGNMENT, false)!=1)
     {   errprintf("ped_disk_set_flag(disk, PED_DISK_CYLINDER_ALIGNMENT, false) failed\n");
         return -1;
     }
