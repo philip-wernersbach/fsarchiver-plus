@@ -133,6 +133,6 @@ AC_ARG_WITH(debug-level,
 )
 AC_SUBST(DEFAULT_DEBUG_LEVEL)
 
-AC_CONFIG_FILES([Makefile src/Makefile doc/Makefile])
+AC_CONFIG_FILES([Makefile src/Makefile doc/Makefile config/Makefile config/fsarchiver.conf])
 
 AC_OUTPUT

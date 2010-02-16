@@ -1,0 +1,6 @@
+# use exclude_restpt is you want to prevent disks from having their
+# partition accidentally restored using 'fsarchiver restpt'
+# this options accepts a list of comma-separated values which can be
+# either the device name or the model of disks that you want to protect 
+#exclude_restpt=/dev/sda,/dev/sdb,*ST31000340AS*,*HDS72202*
+
