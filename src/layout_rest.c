@@ -122,32 +122,31 @@ int partutil_show_disk_specs(char *devname)
 {
     PedDevice *dev=NULL;
     PedDisk *disk=NULL;
+    char disklabel[1024];
+    char diskmodel[1024];
+    char disksize[1024];
     char fmtsize[512];
-    int ret=0;
     
-    if ((dev=ped_device_get(devname))==NULL)
-    {   errprintf("ped_device_get() failed\n");
-        ret=-1;
-        goto partutil_show_disk_specs_cleanup;
+    memset(diskmodel, 0, sizeof(diskmodel));
+    memset(disksize, 0, sizeof(disksize));
+    memset(disklabel, 0, sizeof(disklabel));
+   
+    if ((dev=ped_device_get(devname))!=NULL)
+    {   snprintf(diskmodel, sizeof(diskmodel), "[%s]", dev->model);
+        format_size(((u64)dev->length)*((u64)dev->sector_size), fmtsize, sizeof(fmtsize), 'h');
+        snprintf(disksize, sizeof(disksize), "[%s]", fmtsize);
     }
-    
-    if ((disk=ped_disk_new(dev))==NULL)
-    {   errprintf("ped_disk_new() failed\n");
-        ret=-1;
-        goto partutil_show_disk_specs_cleanup;
+    if ((disk=ped_disk_new(dev))!=NULL)
+    {   snprintf(disklabel, sizeof(disklabel), "(disklabel: %s)", disk->type->name);
     }
-    
-    format_size(((u64)dev->length)*((u64)dev->sector_size), fmtsize, sizeof(fmtsize), 'h');
-    msgprintf(MSG_FORCE, "\nDestination disk: [%s] [%s] [%s] (disklabel: %s)\n\n",
-        devname, fmtsize, dev->model, disk->type->name); 
-
-partutil_show_disk_specs_cleanup:
     if (disk)
         ped_disk_destroy(disk);
     if (dev)
         ped_device_destroy(dev);
     
-    return ret;
+    msgprintf(MSG_FORCE, "\nDestination disk: [%s] %s %s %s\n\n", devname, diskmodel, disksize, disklabel); 
+   
+    return 0;
 }
 
 s64 partutil_convert_sector(s64 oldsector, u32 oldsectsize_bytes, u32 newsectsize_bytes, bool roundway)
