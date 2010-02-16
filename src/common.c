@@ -610,3 +610,52 @@ int get_path_to_volume(char *newvolbuf, int bufsize, char *basepath, long curvol
     return 0;
 }
 
+int config_read_entry(char *entryname, char *buffer, int buflen)
+{
+    char curline[4096]; // current line
+    char lvalue[4096]; // value before '='
+    char rvalue[4096]; // value after '='
+    FILE *fconf; // configuration file
+    int ret=-1;
+    int curc;
+    int pos;
+    int i;
+    
+    memset(buffer, 0, buflen);
+    
+    if ((fconf=fopen(FSA_CONFIG_FILE, "rb"))==NULL)
+        return -1;
+    
+    while (!feof(fconf))
+    {
+        // read a line from the config file
+        memset(curline, 0, sizeof(curline));
+        pos=0;
+        while ((!feof(fconf)) && (pos<sizeof(curline)))
+        {
+            if ((curc=fgetc(fconf))=='\n')
+                break;
+
+            if (!feof(fconf))
+                curline[pos++]=curc;
+        }
+
+        // parse line
+        if ((strlen(curline)>0) && (curline[0]!='#') && index(curline, '='))
+        {
+                memset(lvalue, 0, sizeof(lvalue));
+                memset(rvalue, 0, sizeof(rvalue));
+                for(pos=0; (curline[pos]==' ') || (curline[pos]=='\t'); pos++); // skip spaces
+                for(i=0; (curline[pos]!=0) && (curline[pos]!='=') && (i<sizeof(lvalue)); lvalue[i++]=curline[pos++]);
+                pos++; // skip '='
+                for(i=0; (curline[pos]!=0) && (curline[pos]!='\n') && (i<sizeof(rvalue)); rvalue[i++]=curline[pos++]);
+                if (strcmp(entryname, lvalue)==0) // found entry
+                {   snprintf(buffer, buflen, "%s", rvalue);
+                    ret=0;
+                }
+        }
+    }
+    fclose(fconf);
+    
+    return ret;
+}

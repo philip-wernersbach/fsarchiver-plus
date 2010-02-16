@@ -32,6 +32,7 @@
 #include <string.h>
 #include <limits.h>
 #include <unistd.h>
+#include <fnmatch.h>
 
 #include "fsarchiver.h"
 #include "layout_read.h"
@@ -184,6 +185,31 @@ s64 partutil_convert_sector(s64 oldsector, u32 oldsectsize_bytes, u32 newsectsiz
     return newsector;
 }
 
+int partutil_is_disk_protected(char *protection, char *attribute)
+{
+    char buffer[PATH_MAX];
+    char delims[]=",;";
+    char *saveptr=NULL;
+    char *result;
+    int i;
+    
+    snprintf(buffer, sizeof(buffer), "%s", protection);
+    result=strtok_r(buffer, delims, &saveptr);
+    for(i=0; result != NULL; i++)
+    {
+        if (fnmatch(result, attribute, 0)==0)
+        {   errprintf("The partition table of that disk cannot be restored. "
+                "Disk is protected against accidental partition table modification "
+                "by \"restpt\" in the configuration file: %s\n", FSA_CONFIG_FILE);
+            return true;
+        }
+
+        result = strtok_r(NULL, delims, &saveptr);
+    }
+    
+    return false;
+}
+
 // =================================================================================
 
 typedef struct s_disklayoutbuilder
@@ -314,6 +340,21 @@ int disklayoutbuilder_analyse_partitions(cdisklayoutbuilder *dl)
                     dl->logicpart_highestid=pspecs.num;
             }
         }
+    }
+    
+    return 0;
+}
+
+int disklayoutbuilder_check_protection(cdisklayoutbuilder *dl)
+{
+    char protection[4096];
+    
+    // check that the disk is not protected against accidental restpt in the configuration file
+    if (config_read_entry("exclude_restpt", protection, sizeof(protection))==0)
+    {
+        if (partutil_is_disk_protected(protection, dl->dev->path)==true ||
+            partutil_is_disk_protected(protection, dl->dev->model)==true)
+            return -1;
     }
     
     return 0;
@@ -637,6 +678,12 @@ int restpt(char *partdesc, int id, struct s_strdico *dicocmdline)
     
     if (disklayoutbuilder_analyse_partitions(dl)!=0)
     {   msgprintf(MSG_STACK, "disklayoutbuilder_analyse_partitions() failed\n");
+        ret=-1;
+        goto restpt_restore_device_cleanup;
+    }
+    
+    if (disklayoutbuilder_check_protection(dl)!=0)
+    {   msgprintf(MSG_STACK, "disklayoutbuilder_check_protection() failed\n");
         ret=-1;
         goto restpt_restore_device_cleanup;
     }

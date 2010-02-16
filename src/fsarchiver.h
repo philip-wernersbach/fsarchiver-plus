@@ -105,6 +105,8 @@ enum {OLDERR_FATAL=1,
 #define FSA_RELDATE              PACKAGE_RELDATE
 #define FSA_FILEFORMAT           PACKAGE_FILEFMT
 
+#define FSA_CONFIG_FILE          "/etc/fsarchiver.cfg"
+
 #define FSA_GCRYPT_VERSION       "1.2.3"
 
 #define FSA_MAX_FILEFMTLEN       32
