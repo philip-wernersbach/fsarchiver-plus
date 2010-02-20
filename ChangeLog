@@ -3,8 +3,9 @@ fsarchiver: Filesystem Archiver for Linux [http://www.fsarchiver.org]
 * 0.7.0:
   - Major feature: implemented savept, restpt, showpt (save and restore partition tables)
   - Added configuration file: /etc/fsarchiver.conf (it currently only supports "exclude_restpt")
-* 0.6.8:
+* 0.6.8 (2010-02-20):
   - Fixed compilation error on systems with recent kernel headers by including <sys/stat.h>
+  - Fixed critial bug: there was a risk of corruption when the archive was written on a smbfs/cifs filesystem
 * 0.6.7 (2010-01-31):
   - Added support for sparse files (sparse file on the original disk will be recreated as sparse file)
   - Added per-archive minimum fsarchiver version requirement (MAINHEADKEY_MINFSAVERSION)

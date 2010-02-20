@@ -38,6 +38,9 @@
 #include "comp_bzip2.h"
 #include "error.h"
 
+#define FSA_SMB_SUPER_MAGIC 0x517B
+#define FSA_CIFS_MAGIC_NUMBER 0xFF534D42
+
 int archwriter_init(carchwriter *ai)
 {
     assert(ai);
@@ -64,15 +67,23 @@ int archwriter_generate_id(carchwriter *ai)
 
 int archwriter_create(carchwriter *ai)
 {
+    //char testpath[PATH_MAX];
+    //struct statfs svfs;
+    //int tempfd;
     struct stat64 st;
+    long archflags=0;
+    long archperm;
     int res;
     
     assert(ai);
     
+    // init
     memset(&st, 0, sizeof(st));
-    res=stat64(ai->volpath, &st);
+    archflags=O_RDWR|O_CREAT|O_TRUNC|O_LARGEFILE;
+    archperm=S_IRUSR|S_IWUSR|S_IRGRP|S_IROTH;
     
     // if the archive already exists and is a not regular file
+    res=stat64(ai->volpath, &st);
     if (res==0 && !S_ISREG(st.st_mode))
     {   errprintf("%s already exists, and is not a regular file.\n", ai->basepath);
         return -1;
@@ -82,32 +93,47 @@ int archwriter_create(carchwriter *ai)
         return -1;
     }
     
-    ai->archfd=open64(ai->volpath, O_RDWR|O_CREAT|O_TRUNC|O_LARGEFILE, S_IRUSR|S_IWUSR|S_IRGRP|S_IROTH);
+    // check if it's a network filesystem
+    /*snprintf(testpath, sizeof(testpath), "%s.test", ai->volpath);
+    if (((tempfd=open64(testpath, basicflags, archperm))<0) ||
+        (fstatfs(tempfd, &svfs)!=0) ||
+        (close(tempfd)!=0) ||
+        (unlink(testpath)!=0))
+    {   errprintf("Cannot check the filesystem type on file %s\n", testpath);
+        return -1;
+    }
+    
+    if (svfs.f_type==FSA_CIFS_MAGIC_NUMBER || svfs.f_type==FSA_SMB_SUPER_MAGIC)
+    {   sysprintf ("writing an archive on a smbfs/cifs filesystem is "
+            "not allowed, since it can produce corrupt archives.\n");
+        return -1;
+    }*/
+    
+    ai->archfd=open64(ai->volpath, archflags, archperm);
     if (ai->archfd < 0)
     {   sysprintf ("cannot create archive %s\n", ai->volpath);
         return -1;
     }
     ai->newarch=true;
     
-    if (lockf(ai->archfd, F_LOCK, 0)!=0)
+    /* lockf is causing corruption when the archive is written on a smbfs/cifs filesystem */
+    /*if (lockf(ai->archfd, F_LOCK, 0)!=0)
     {   sysprintf("Cannot lock archive file: %s\n", ai->volpath);
         close(ai->archfd);
         return -1;
-    }
+    }*/
     
     return 0;
 }
 
 int archwriter_close(carchwriter *ai)
 {
-    int res;
-    
     assert(ai);
     
     if (ai->archfd<0)
         return -1;
     
-    res=lockf(ai->archfd, F_ULOCK, 0);
+    //res=lockf(ai->archfd, F_ULOCK, 0);
     fsync(ai->archfd); // just in case the user reboots after it exits
     close(ai->archfd);
     ai->archfd=-1;
