@@ -154,7 +154,7 @@ int get_devinfo(struct s_devinfo *outdev, char *indevname)
     
     // defaults values
     outdev->devtype=BLKDEV_INVALID;
-    snprintf(outdev->label, sizeof(outdev->label), "<unknown>");
+    snprintf(outdev->label, sizeof(outdev->label), "");
     snprintf(outdev->uuid, sizeof(outdev->uuid), "<unknown>");
     snprintf(outdev->fsname, sizeof(outdev->fsname), "<unknown>");
     
