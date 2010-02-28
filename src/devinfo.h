@@ -44,6 +44,6 @@ struct s_diskinfo
 };
 
 int get_partlist(struct s_devinfo *blkdev, int maxblkdev, int *diskcount, int *partcount);
-int get_devinfo(struct s_devinfo *outdev, char *indevname);
+int get_devinfo(struct s_devinfo *outdev, char *indevname, int min, int maj);
 
 #endif // __DEVINFO_H__
