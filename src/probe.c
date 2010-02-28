@@ -31,8 +31,8 @@
 struct s_diskinfo partinfo[]=
 {
     {false,    "[%-16s] ",    "[=====DEVICE=====] "},
-    {false,    "[%-11s] ",    "[==FILESYS==] "},
-    {false,    "[%-17s] ",    "[======LABEL======] "},
+    {false,    "[%-11.11s] ", "[==FILESYS==] "},
+    {false,    "[%-17.17s] ", "[======LABEL======] "},
     {false,    "[%12s] ",     "[====SIZE====] "},
     {false,    "[%3s] ",      "[MAJ] "},
     {false,    "[%3s] ",      "[MIN] "},
