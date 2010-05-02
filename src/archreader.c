@@ -62,7 +62,7 @@ int archreader_destroy(carchreader *ai)
 int archreader_open(carchreader *ai)
 {   
     struct stat64 st;
-    char volhead[96];
+    char volhead[64];
     int magiclen;
     int res;
     
