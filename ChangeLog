@@ -3,7 +3,7 @@ fsarchiver: Filesystem Archiver for Linux [http://www.fsarchiver.org]
 * 0.7.0:
   - Major feature: implemented savept, restpt, showpt (save and restore partition tables)
   - Added configuration file: /etc/fsarchiver.conf (it currently only supports "exclude_restpt")
-  - Fix in restoration: consider ENOSPC (no space left on device) as a fatal error and exit
+  - Fix error handling in restoration: consider ENOSPC as a fatal error and other fixes
 * 0.6.8 (2010-02-20):
   - Fixed compilation error on systems with recent kernel headers by including <sys/stat.h>
   - Fixed critial bug: there was a risk of corruption when the archive was written on a smbfs/cifs filesystem
