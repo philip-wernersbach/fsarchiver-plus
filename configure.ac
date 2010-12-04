@@ -4,7 +4,7 @@
 AC_PREREQ(2.59)
 
 AC_INIT([fsarchiver], 0.7.0-git)
-AC_DEFINE([PACKAGE_RELDATE], "2010-MM-DD", [Define the date of the release])
+AC_DEFINE([PACKAGE_RELDATE], "YYYY-MM-DD", [Define the date of the release])
 AC_DEFINE([PACKAGE_FILEFMT], "FsArCh_002", [Define the version of the file format])
 AC_DEFINE([PACKAGE_VERSION_A], 0, [Major version number])
 AC_DEFINE([PACKAGE_VERSION_B], 7, [Medium version number])
@@ -87,7 +87,6 @@ PKG_CHECK_MODULES([E2P], [e2p])
 PKG_CHECK_MODULES([BLKID], [blkid])
 PKG_CHECK_MODULES([UUID], [uuid])
 PKG_CHECK_MODULES([LIBPARTED], [libparted])
-PKG_CHECK_MODULES([LIBXML2], [libxml-2.0])
 PKG_CHECK_EXISTS([libparted < 2.1], [AC_DEFINE([OLD_PARTED], 1, [Set if parted < 2.1])])
 
 dnl Check for header files installed with a library

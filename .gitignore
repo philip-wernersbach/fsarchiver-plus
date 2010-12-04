@@ -16,3 +16,6 @@ Makefile
 aclocal.m4
 install-sh
 *.swp
+*.o
+*~
+

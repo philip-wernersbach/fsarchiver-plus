@@ -23,11 +23,10 @@
 #include <stdlib.h>
 #include <string.h>
 #include <assert.h>
-#include <libxml/encoding.h>
-#include <libxml/xmlwriter.h>
 #include <parted/parted.h>
 
 #include "fsarchiver.h"
+#include "serializer.h"
 #include "strdico.h"
 #include "devinfo.h"
 #include "common.h"
@@ -71,32 +70,6 @@ int parttype_string_to_int(char *name)
 
 // ====================================================================================
 
-typedef struct s_disklayoutwriter
-{   xmlTextWriterPtr writer;
-    xmlBufferPtr buffer;
-} cdisklayoutwriter;
-
-cdisklayoutwriter *disklayoutwriter_alloc()
-{
-    cdisklayoutwriter *dl;
-    
-    if ((dl=malloc(sizeof(cdisklayoutwriter)))==NULL)
-    {   errprintf("malloc(%ld) failed\n", (long)sizeof(cdisklayoutwriter));
-        return NULL;
-    }
-    
-    memset(dl, 0, sizeof(cdisklayoutwriter));
-    
-    return dl;
-}
-
-int disklayoutwriter_destroy(cdisklayoutwriter *dl)
-{
-    assert(dl);
-    free(dl);
-    return 0;
-}
-
 int partutil_partition_get_flags(PedPartition *part, char *bufflags, int bufsize)
 {
     PedPartitionFlag flag=0;
@@ -119,119 +92,79 @@ int partutil_partition_get_flags(PedPartition *part, char *bufflags, int bufsize
     return 0;
 }
 
-int disklayoutwriter_dump_partition(cdisklayoutwriter *dl, PedDisk *disk, PedPartition *part)
+int disklayoutwriter_dump_partition(PedDisk *disk, PedPartition *part, cserializer *serial)
 {
+    char partnumid[512];
     char partflags[2048];
     char partname[512];
     char partfstype[512];
     const char *parttemp;
     char *parttype=NULL;
     
-    assert(dl);
+    assert(disk);
     assert(part);
-        
+    assert(serial);
+
     if ((parttype=parttype_int_to_string(part->type))==NULL)
     {   errprintf("disklayoutwriter_dump_device: invalid partition type: %d\n", part->type);
         return -1;
     }
-    
+
     if (partutil_partition_get_flags(part, partflags, sizeof(partflags))!=0)
     {   errprintf("partutil_part_get_flags() failed\n");
         return -1;
     }
-    
+
+    snprintf(partnumid, sizeof(partnumid), "part_%.3d", (int)part->num);
+
     memset(partname, 0, sizeof(partname));
     if ((ped_disk_type_check_feature(disk->type, PED_DISK_TYPE_PARTITION_NAME)==1) && 
         (parttemp=ped_partition_get_name(part))!=NULL)
         snprintf(partname, sizeof(partname), "%s", parttemp);
-    
+
     memset(partfstype, 0, sizeof(partfstype));
     if ((part->fs_type!=NULL) && (part->fs_type->name!=NULL))
         snprintf(partfstype, sizeof(partfstype), "%s", part->fs_type->name);
-    
-    if (xmlTextWriterStartElement(dl->writer, BAD_CAST "partition")<0)
-    {   errprintf("disklayoutwriter_dump_device: Error at xmlTextWriterStartElement\n");
+
+    if ((serializer_setbykeys_integer(serial, partnumid, "num", part->num)!=0) ||
+        (serializer_setbykeys_format(serial, partnumid, "type", "%s", parttype)<0) ||
+        (serializer_setbykeys_integer(serial, partnumid, "start", part->geom.start)<0) ||
+        (serializer_setbykeys_integer(serial, partnumid, "length", part->geom.length)<0) ||
+        (serializer_setbykeys_integer(serial, partnumid, "end", part->geom.end)<0) ||
+        (serializer_setbykeys_format(serial, partnumid, "flags", "%s", partflags)<0) ||
+        (serializer_setbykeys_format(serial, partnumid, "name", "%s", partname)<0) ||
+        (serializer_setbykeys_format(serial, partnumid, "fstype", "%s", partfstype)<0))
+    {   errprintf("disklayoutwriter_dump_partition: Error at serializer_setbykeys_xxx()\n");
         return -1;
     }
-    
-    if ((xmlTextWriterWriteFormatAttribute(dl->writer, BAD_CAST "num", "%d", (int)part->num)<0) ||
-        (xmlTextWriterWriteFormatAttribute(dl->writer, BAD_CAST "type", "%s", parttype)<0) ||
-        (xmlTextWriterWriteFormatAttribute(dl->writer, BAD_CAST "start", "%lld", (long long)part->geom.start)<0) ||
-        (xmlTextWriterWriteFormatAttribute(dl->writer, BAD_CAST "length", "%lld", (long long)part->geom.length)<0) ||
-        (xmlTextWriterWriteFormatAttribute(dl->writer, BAD_CAST "end", "%lld", (long long)part->geom.end)<0) ||
-        (xmlTextWriterWriteFormatAttribute(dl->writer, BAD_CAST "flags", "%s", partflags)<0) ||
-        (xmlTextWriterWriteFormatAttribute(dl->writer, BAD_CAST "name", "%s", partname)<0) ||
-        (xmlTextWriterWriteFormatAttribute(dl->writer, BAD_CAST "fstype", "%s", partfstype)<0))
-    {   errprintf("disklayoutwriter_dump_device: Error at xmlTextWriterWriteFormatAttribute\n");
-        return -1;
-    }
-    
-    if (xmlTextWriterEndElement(dl->writer)<0)
-    {   errprintf("disklayoutwriter_dump_device: Error at xmlTextWriterEndElement\n");
-        return -1;
-    }
-    
+
     return 0;
 }
 
-int disklayoutwriter_dump_device(cdisklayoutwriter *dl, char *devname, cdico *dico, int dicsection, int dickey)
+int disklayoutwriter_dump_device(char *devname, cdico *dico, int dicsection, int dickey)
 {
+    char dumpbuf[65535];
     PedDevice *dev=NULL;
     PedDisk *disk=NULL;
     PedPartition *part=NULL;
+    cserializer *serial=NULL;
+    int partcount=0;
     int ret=0;
-    
-    assert(dl);
+
+    if ((serial=serializer_alloc())==NULL)
+    {   errprintf("serializer_alloc() failed\n");
+        ret=-1;
+        goto disklayoutwriter_dump_device_cleanup;
+    }
 
     if ((dev=ped_device_get(devname))==NULL)
     {   errprintf("ped_device_get() failed\n");
         ret=-1;
         goto disklayoutwriter_dump_device_cleanup;
     }
-    
+
     if ((disk=ped_disk_new(dev))==NULL)
     {   errprintf("ped_disk_new() failed\n");
-        ret=-1;
-        goto disklayoutwriter_dump_device_cleanup;
-    }
-    
-    if ((dl->buffer = xmlBufferCreate())==NULL)
-    {   errprintf("disklayoutwriter_dump_device: Error creating the xml buffer\n");
-        ret=-1;
-        goto disklayoutwriter_dump_device_cleanup;
-    }
-    
-    if ((dl->writer=xmlNewTextWriterMemory(dl->buffer, 0))==NULL)
-    {   errprintf("disklayoutwriter_dump_device: Error creating the xml writer\n");
-        ret=-1;
-        goto disklayoutwriter_dump_device_cleanup;
-    }
-    
-    if (xmlTextWriterStartDocument(dl->writer, NULL, "ISO-8859-1", NULL)!=0)
-    {   errprintf("disklayoutwriter_dump_device: Error at xmlTextWriterStartDocument\n");
-        ret=-1;
-        goto disklayoutwriter_dump_device_cleanup;
-    }
-    
-    if (xmlTextWriterStartElement(dl->writer, BAD_CAST "disklayout")<0)
-    {   errprintf("disklayoutwriter_dump_device: Error at xmlTextWriterStartElement\n");
-        ret=-1;
-        goto disklayoutwriter_dump_device_cleanup;
-    }
-    
-    if (xmlTextWriterStartElement(dl->writer, BAD_CAST "disk")<0)
-    {   errprintf("disklayoutwriter_dump_device: Error at xmlTextWriterStartElement\n");
-        ret=-1;
-        goto disklayoutwriter_dump_device_cleanup;
-    }
-    
-    if ((xmlTextWriterWriteFormatAttribute(dl->writer, BAD_CAST "phys_sector_size", "%ld", (long)dev->phys_sector_size)<0) ||
-        (xmlTextWriterWriteFormatAttribute(dl->writer, BAD_CAST "sector_size", "%ld", (long)dev->sector_size)<0) ||
-        (xmlTextWriterWriteFormatAttribute(dl->writer, BAD_CAST "model", "%s", dev->model)<0) ||
-        (xmlTextWriterWriteFormatAttribute(dl->writer, BAD_CAST "path", "%s", dev->path)<0) ||
-        (xmlTextWriterWriteFormatAttribute(dl->writer, BAD_CAST "length", "%lld", (long long)dev->length)<0) ||
-        (xmlTextWriterWriteFormatAttribute(dl->writer, BAD_CAST "disklabel", "%s", disk->type->name)<0))
-    {   errprintf("disklayoutwriter_dump_device: Error at xmlTextWriterWriteFormatAttribute\n");
         ret=-1;
         goto disklayoutwriter_dump_device_cleanup;
     }
@@ -244,7 +177,8 @@ int disklayoutwriter_dump_device(cdisklayoutwriter *dl, char *devname, cdico *di
                 case PED_PARTITION_LOGICAL:
                 case PED_PARTITION_EXTENDED:
                 case PED_PARTITION_PROTECTED:
-                    if (disklayoutwriter_dump_partition(dl, disk, part)!=0)
+                    partcount++;
+                    if (disklayoutwriter_dump_partition(disk, part, serial)!=0)
                     {
                         ret=-1;
                         goto disklayoutwriter_dump_device_cleanup;
@@ -254,40 +188,39 @@ int disklayoutwriter_dump_device(cdisklayoutwriter *dl, char *devname, cdico *di
                     break;
         }
     }
-    
-    if (xmlTextWriterEndElement(dl->writer)<0)
-    {   errprintf("disklayoutwriter_dump_device: Error at xmlTextWriterEndElement\n");
+
+    if ((serializer_setbykeys_integer(serial, "disk", "phys_sector_size", dev->phys_sector_size)!=0) ||
+        (serializer_setbykeys_integer(serial, "disk", "sector_size", dev->sector_size)!=0) ||
+        (serializer_setbykeys_integer(serial, "disk", "partcount", partcount)!=0) ||
+        (serializer_setbykeys_format(serial, "disk", "model", "%s", dev->model)!=0) ||
+        (serializer_setbykeys_format(serial, "disk", "path", "%s", dev->path)!=0) ||
+        (serializer_setbykeys_integer(serial, "disk", "length", dev->length)!=0) ||
+        (serializer_setbykeys_format(serial, "disk", "disklabel", "%s", disk->type->name)!=0))
+    {   errprintf("disklayoutwriter_dump_device: Error at serializer_setbykeys_xxx()\n");
         ret=-1;
         goto disklayoutwriter_dump_device_cleanup;
     }
     
-    if (xmlTextWriterEndElement(dl->writer)<0)
-    {   errprintf("disklayoutwriter_dump_device: Error at xmlTextWriterEndElement\n");
+    if (serializer_dump(serial, dumpbuf, sizeof(dumpbuf))!=0)
+    {   errprintf("disklayoutwriter_dump_device: Error at serializer_dump()\n");
         ret=-1;
         goto disklayoutwriter_dump_device_cleanup;
     }
-    
-    if (xmlTextWriterEndDocument(dl->writer)<0)
-    {   errprintf("disklayoutwriter_dump_device: Error at xmlTextWriterEndDocument\n");
-        ret=-1;
-        goto disklayoutwriter_dump_device_cleanup;
-    }
-    
-    xmlFreeTextWriter(dl->writer);
-    
-    dico_add_string(dico, dicsection, dickey, (const char *)dl->buffer->content);
-    
-    xmlBufferFree(dl->buffer);
-    
+    dico_add_string(dico, dicsection, dickey, (const char *)dumpbuf);
+
+    //printf("DEVICE[%s]:\n%s\n\n", devname, dumpbuf);
+
 disklayoutwriter_dump_device_cleanup:
     if (disk)
         ped_disk_destroy(disk);
     if (dev)
         ped_device_destroy(dev);
+    if (serial)
+        serializer_destroy(serial);
     return ret;
 }
 
-int disklayoutwriter_dump_all_devices(cdisklayoutwriter *dl, cdico *dico, int dicsection)
+int disklayoutwriter_dump_all_devices(cdico *dico, int dicsection)
 {
     struct s_devinfo blkdev[FSA_MAX_BLKDEVICES];
     int diskcount;
@@ -310,7 +243,7 @@ int disklayoutwriter_dump_all_devices(cdisklayoutwriter *dl, cdico *dico, int di
             if (blkdev[i].devtype==BLKDEV_PHYSDISK)
             {
                 msgprintf(MSG_VERB1, "Saving description of the partition table of disk %s\n", blkdev[i].longname);
-                disklayoutwriter_dump_device(dl, blkdev[i].longname, dico, dicsection, diskid++);
+                disklayoutwriter_dump_device(blkdev[i].longname, dico, dicsection, diskid++);
             }
         }
     }
@@ -326,12 +259,7 @@ int disklayoutwriter_dump_all_devices(cdisklayoutwriter *dl, cdico *dico, int di
 
 int savept(cdico *dico, int dicsection)
 {
-    cdisklayoutwriter *dl;
     int ptcount;
-    
-    dl=disklayoutwriter_alloc();
-    ptcount=disklayoutwriter_dump_all_devices(dl, dico, dicsection);
-    disklayoutwriter_destroy(dl);
-    
+    ptcount=disklayoutwriter_dump_all_devices(dico, dicsection);
     return ptcount;
 }

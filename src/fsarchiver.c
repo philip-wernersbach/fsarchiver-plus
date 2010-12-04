@@ -453,9 +453,43 @@ int process_cmdline(int argc, char **argv)
     return ret;
 }
 
+#include "serializer.h"
+
 int main(int argc, char **argv)
 {
     int ret;
+    
+    /*cserializer *serial1;
+    cserializer *serial2;
+    s64 number1, number2;
+    char string1[512], string2[512];
+    char bigbuffer1[8192];
+    char bigbuffer2[8192];
+    memset(bigbuffer1, 0, sizeof(bigbuffer1));
+    memset(bigbuffer2, 0, sizeof(bigbuffer2));
+    serial1=serializer_alloc();
+    serial2=serializer_alloc();
+    serializer_setbykeys_format(serial1, "disk", "device", "/dev/sda");
+    serializer_setbykeys_format(serial1, "disk", "serial", "XXXXXXXX");
+    serializer_setbykeys_format(serial1, "disk", "partcount", "%d", 3);
+    serializer_setbykeys_format(serial1, "part001", "name", "boot");
+    serializer_setbykeys_format(serial1, "part001", "size", "%d", 150000);
+    serializer_setbykeys_format(serial1, "part002", "name", "root");
+    serializer_setbykeys_format(serial1, "part002", "size", "%d", 380000);
+    serializer_dump(serial1, bigbuffer1, sizeof(bigbuffer1));
+    printf("DUMP:\n%s\n", bigbuffer1);
+    serializer_read(serial2, bigbuffer1);
+    serializer_dump(serial2, bigbuffer2, sizeof(bigbuffer2));
+    printf("READ:%s\n", bigbuffer2);
+    serializer_getbykeys_integer(serial1, "part001", "size", &number1);
+    serializer_getbykeys_data(serial1, "part001", "name", string1, sizeof(string1));
+    serializer_getbykeys_integer(serial1, "part002", "size", &number2);
+    serializer_getbykeys_data(serial1, "part002", "name", string2, sizeof(string2));
+    printf("PART1: name=[%s], size=[%ld]\n", string1, (long)number1);
+    printf("PART2: name=[%s], size=[%ld]\n", string2, (long)number2);
+    serializer_destroy(serial1);
+    serializer_destroy(serial2);
+    return 0;*/
     
     // init the lzo library
 #ifdef OPTION_LZO_SUPPORT
