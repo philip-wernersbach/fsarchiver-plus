@@ -24,6 +24,7 @@
 #include <sys/vfs.h>
 #include <sys/utsname.h>
 #include <sys/mount.h>
+#include <errno.h>
 
 #include "fsarchiver.h"
 #include "common.h"
@@ -108,20 +109,41 @@ int generic_get_fsrwstatus(char *options)
 
 int devcmp(char *dev1, char *dev2)
 {
-    struct stat64 st1, st2;
-    
-    if (stat64(dev1, &st1)!=0 || stat64(dev2, &st2)!=0)
-        return -1;
-    
-    if (!S_ISBLK(st1.st_mode) || !S_ISBLK(st2.st_mode))
-        return -1;
-    
-    return  (st1.st_rdev==st2.st_rdev) ? 0 : 1;
+    struct stat64 devstat[2];
+    char *devname[]={dev1, dev2};
+    int i;
+
+    for (i=0; i<2; i++)
+    {
+        if (strncmp(devname[i], "/dev/", 5)!=0)
+            return -1;
+
+        errno=0;
+        if (stat64(devname[i], &devstat[i]) != 0)
+        {
+            if (errno == ENOENT)
+                errprintf("Warning: node for device [%s] does not exist in /dev/\n", devname[i]);
+            else
+                errprintf("Warning: cannot get details for device [%s]\n", devname[i]);
+            return -1;
+        }
+        
+        if (!S_ISBLK(devstat[0].st_mode))
+        {
+            errprintf("Warning: [%s] is not a block device\n", devname[i]);
+            return -1;
+        }
+    }
+
+    return  (devstat[0].st_rdev==devstat[1].st_rdev) ? 0 : 1;
 }
 
 int generic_get_mntinfo(char *devname, int *readwrite, char *mntbuf, int maxmntbuf, char *optbuf, int maxoptbuf, char *fsbuf, int maxfsbuf)
 {
     char col_fs[FSA_MAX_FSNAMELEN];
+    int devisroot=false;
+    struct stat64 devstat;
+    struct stat64 rootstat;
     char delims[]=" \t\n";
     struct utsname suname;
     char col_dev[128];
@@ -134,18 +156,34 @@ int generic_get_mntinfo(char *devname, int *readwrite, char *mntbuf, int maxmntb
     int res;
     FILE *f;
     int i;
-    
+
     // init
     res=uname(&suname);
     *readwrite=-1; // unknown
     memset(mntbuf, 0, sizeof(mntbuf));
     memset(optbuf, 0, sizeof(optbuf));
-    
+
+    // 1. workaround for systems not having the "/dev/root" node entry.
+
+    // There are systems showing "/dev/root" in "/proc/mounts" instead
+    // of the actual root partition such as "/dev/sda1".
+    // The consequence is that fsarchiver won't be able to realize
+    // that the device it is archiving (such as "/dev/sda1") is the
+    // same as "/dev/root" and that it is actually mounted. This 
+    // function would then say that the "/dev/sda1" device is not mounted
+    // and fsarchiver would try to mount it and mount() fails with EBUSY
+    if (stat64(devname, &devstat)==0 && stat64("/", &rootstat)==0 && (devstat.st_rdev==rootstat.st_dev))
+    {
+        devisroot=true;
+        msgprintf(MSG_VERB1, "device [%s] is the root device\n", devname);
+    }
+
+    // 2. check device in "/proc/mounts" (typical case)
     if ((f=fopen("/proc/mounts","rb"))==NULL)
     {   sysprintf("Cannot open /proc/mounts\n");
         return 1;
     }
-    
+
     while(!feof(f))
     {
         if (stream_readline(f, line, 1024)>1)
@@ -171,15 +209,24 @@ int generic_get_mntinfo(char *devname, int *readwrite, char *mntbuf, int maxmntb
                 }
                 result = strtok_r(NULL, delims, &saveptr);
             }
-            
-            if ((devcmp(col_dev, devname)==0) && (generic_get_spacestats(col_dev, col_mnt, temp, sizeof(temp))==0))
+
+            if ((devisroot==true) && (strcmp(col_mnt, "/")==0) && (strcmp(col_fs, "rootfs")!=0))
+                snprintf(col_dev, sizeof(col_dev), "%s", devname);
+
+            msgprintf(MSG_DEBUG1, "mount entry: col_dev=[%s] col_mnt=[%s] col_fs=[%s] col_opt=[%s]\n", col_dev, col_mnt, col_fs, col_opt);
+
+            if (devcmp(col_dev, devname)==0)
             {
-                *readwrite=generic_get_fsrwstatus(col_opt);
-                snprintf(mntbuf, maxmntbuf, "%s", col_mnt);
-                snprintf(optbuf, maxoptbuf, "%s", col_opt);
-                snprintf(fsbuf, maxfsbuf, "%s", col_fs);
-                fclose(f);
-                return 0;
+                if (generic_get_spacestats(col_dev, col_mnt, temp, sizeof(temp))==0)
+                {
+                    msgprintf(MSG_DEBUG1, "found mount entry for device=[%s]: mnt=[%s] fs=[%s] opt=[%s]\n", devname, col_mnt, col_fs, col_opt);
+                    *readwrite=generic_get_fsrwstatus(col_opt);
+                    snprintf(mntbuf, maxmntbuf, "%s", col_mnt);
+                    snprintf(optbuf, maxoptbuf, "%s", col_opt);
+                    snprintf(fsbuf, maxfsbuf, "%s", col_fs);
+                    fclose(f);
+                    return 0;
+                }
             }
         }
     }
