@@ -251,8 +251,8 @@ int compression_function(int oper)
     struct s_blockinfo blkinfo;
     s64 blknum;
     int res;
-    
-    while (queue_get_end_of_queue(g_queue)==false)
+
+    while (queue_get_end_of_queue(g_queue) == false)
     {
         if ((blknum=queue_get_first_block_todo(g_queue, &blkinfo))>0) // block found
         {
@@ -276,12 +276,12 @@ int compression_function(int oper)
             queue_replace_block(g_queue, blknum, &blkinfo, QITEM_STATUS_DONE);
         }
     }
-    
+
     msgprintf(MSG_DEBUG1, "THREAD-COMP: exit success\n");
     return 0;
-    
+
 thread_comp_fct_error:
-    get_stopfillqueue();
+    set_status(STATUS_FAILED);
     msgprintf(MSG_DEBUG1, "THREAD-COMP: exit error\n");
     return 0;
 }

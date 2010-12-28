@@ -750,30 +750,35 @@ int restpt(char *partdesc, int id, struct s_strdico *dicocmdline)
     msgprintf(MSG_DEBUG2, "logicpart_highestid=%d\n", dl->logicpart_highestid);
     
     if ((dl->primpart_count>0) && (disklayoutbuilder_recreate_primary_partitions(dl)!=0))
-    {   errprintf("disklayoutbuilder_recreate_primary_partitions() failed\n");
+    {
+        errprintf("disklayoutbuilder_recreate_primary_partitions() failed\n");
         ret=-1;
         goto restpt_restore_device_cleanup;
     }
     
     if ((dl->logicpart_count>0) && (disklayoutbuilder_recreate_logical_partitions(dl)!=0))
-    {   msgprintf(MSG_STACK, "disklayoutbuilder_recreate_logical_partitions() failed\n");
+    {
+        msgprintf(MSG_STACK, "disklayoutbuilder_recreate_logical_partitions() failed\n");
         ret=-1;
         goto restpt_restore_device_cleanup;
     }
     
     if (disklayoutbuilder_set_partitions_attributes(dl)!=0)
-    {   msgprintf(MSG_STACK, "disklayoutbuilder_set_partitions_flags() failed\n");
+    {
+        msgprintf(MSG_STACK, "disklayoutbuilder_set_partitions_flags() failed\n");
         ret=-1;
         goto restpt_restore_device_cleanup;
     }
     
-    while ((delay-- > 0) && (get_abort()==false))
-    {   msgprintf(MSG_FORCE, "Partition table will be restored on %s in %d seconds, press Ctrl+C to abort\n", destdisk, delay);
+    while ((delay-- > 0) && (get_status() == STATUS_RUNNING))
+    {
+        msgprintf(MSG_FORCE, "Partition table will be restored on %s in %d seconds, press Ctrl+C to abort\n", destdisk, delay);
         sleep(1);
     }
     
-    if (get_abort()==true)
-    {   msgprintf(MSG_FORCE, "operation aborted by user\n");
+    if (get_status() == STATUS_ABORTED)
+    {
+        msgprintf(MSG_FORCE, "operation aborted by user\n");
         ret=-1;
         goto restpt_restore_device_cleanup;
     } 
@@ -800,7 +805,8 @@ int showpt(char *partdesc, int id)
     int ret=0;
 
     if ((dl=disklayoutbuilder_alloc())==NULL)
-    {   errprintf("disklayoutbuilder_alloc() failed\n");
+    {
+        errprintf("disklayoutbuilder_alloc() failed\n");
         ret=-1;
         goto showpt_cleanup;
     }

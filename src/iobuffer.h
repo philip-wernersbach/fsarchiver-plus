@@ -35,7 +35,7 @@ struct s_iobuffer
     u32 blocks_maxcnt; // maximum number of blocks in the linked list
     u32 blocks_curcnt; // current number of blocks in the linked list
     u32 blocks_size; // size of a block (FSA_FEC_VALUE_K * FSA_FEC_CHUNK_SIZE)
-    bool endofqueue; // true when no more data to put in queue (like eof)
+    bool endofbuffer; // true when no more data to put in queue (like eof)
 };
 
 struct s_ioblock
@@ -49,10 +49,10 @@ struct s_ioblock
 
 ciobuffer *iobuffer_alloc(u32 blocks_maxcnt, u32 blksize);
 int iobuffer_destroy(ciobuffer *iob);
-int iobuffer_set_end_of_queue(ciobuffer *iob, bool state);
+int iobuffer_set_end_of_buffer(ciobuffer *iob, bool state);
 u32 iobuffer_get_block_size(ciobuffer *iob);
-bool iobuffer_get_end_of_queue_locked(ciobuffer *iob);
-bool iobuffer_get_end_of_queue(ciobuffer *iob);
+bool iobuffer_get_end_of_buffer_locked(ciobuffer *iob);
+bool iobuffer_get_end_of_buffer(ciobuffer *iob);
 
 int iobuffer_write_raw_data(ciobuffer *iob, char *buffer, u32 datasize);
 int iobuffer_write_block(ciobuffer *iob, struct s_blockinfo *blkinfo, u16 fsid);

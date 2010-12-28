@@ -841,7 +841,7 @@ int extractar_restore_obj_regfile_unique(cextractar *exar, char *fullpath, char 
         minorerr=true;
     
     msgprintf(MSG_DEBUG2, "restore_obj_regfile_unique(file=%s, size=%lld)\n", relpath, (long long)filesize);
-    for (filepos=0; (minorerr==false) && (filesize>0) && (filepos < filesize) && (get_interrupted()==false); filepos+=blkinfo.blkrealsize)
+    for (filepos=0; (minorerr == false) && (filesize > 0) && (filepos < filesize) && (get_status() == STATUS_RUNNING); filepos+=blkinfo.blkrealsize)
     {
         if ((lres=queue_dequeue_block(g_queue, &blkinfo))<=0)
         {
@@ -939,7 +939,7 @@ restore_obj_regfile_unique_end:
             exar->stats.cnt_regfile++;
     }
 
-    if (get_interrupted()==true)
+    if (get_status() != STATUS_RUNNING)
         errprintf("operation has been interrupted\n");
 
     dico_destroy(footerdico);
@@ -1085,7 +1085,7 @@ int extractar_extract_read_objects(cextractar *exar, int *errors, char *destdir,
             
             //dico_destroy(dicoattr);
         }
-    } while ((headerisend!=true) && (get_abort()==false));
+    } while ((headerisend != true) && (get_status() == STATUS_RUNNING));
     
     return 0;
 }
@@ -1374,8 +1374,9 @@ int extractar_filesystem_extract(cextractar *exar, cdico *dicofs, cstrdico *dico
     }
     dico_destroy(dicoend);
     
-    if ((get_interrupted()==false) && (memcmp(magic, FSA_MAGIC_DATF, FSA_SIZEOF_MAGIC)!=0))
-    {   errprintf("header is not what we expected: found=[%s] and expected=[%s]\n", magic, FSA_MAGIC_DATF);
+    if ((get_status() == STATUS_RUNNING) && (memcmp(magic, FSA_MAGIC_DATF, FSA_SIZEOF_MAGIC)!=0))
+    {
+        errprintf("header is not what we expected: found=[%s] and expected=[%s]\n", magic, FSA_MAGIC_DATF);
         goto filesystem_extract_umount;
     }
     
@@ -1636,7 +1637,7 @@ int restore(int argc, char **argv, int oper)
     switch (oper)
     {
         case OPER_RESTFS:
-            for (i=0; (i < archinfo.fscount) && (i < FSA_MAX_FSPERARCH) && (get_abort() == false); i++)
+            for (i=0; (i < archinfo.fscount) && (i < FSA_MAX_FSPERARCH) && (get_status() == STATUS_RUNNING); i++)
             {
                 if (dicoargv[i]!=NULL) // that filesystem has been requested on the command line
                 {
@@ -1648,7 +1649,7 @@ int restore(int argc, char **argv, int oper)
                         msgprintf(MSG_STACK, "extract_filesystem(%d) failed\n", i);
                         goto do_extract_error;
                     }
-                    if (get_abort()==false)
+                    if (get_status() == STATUS_RUNNING)
                         stats_show(exar.stats, i);
                     totalerr+=stats_errcount(exar.stats);
                 }
@@ -1669,7 +1670,7 @@ int restore(int argc, char **argv, int oper)
             break;
             
         case OPER_RESTPT:
-            for (i=0; (i < archinfo.ptcount) && (i < FSA_MAX_PTPERARCH) && (get_abort() == false); i++)
+            for (i=0; (i < archinfo.ptcount) && (i < FSA_MAX_PTPERARCH) && (get_status() == STATUS_RUNNING); i++)
             {
                 if (dicoargv[i]!=NULL) // that parttable has been requested on the command line
                 {
@@ -1688,7 +1689,7 @@ int restore(int argc, char **argv, int oper)
             break;
             
         case OPER_SHOWPT:
-            for (i=0; (i < archinfo.ptcount) && (i < FSA_MAX_PTPERARCH) && (get_abort() == false); i++)
+            for (i=0; (i < archinfo.ptcount) && (i < FSA_MAX_PTPERARCH) && (get_status() == STATUS_RUNNING); i++)
             {
                 if (dico_get_string(dicomainhead, MAINHEADSEC_PARTTABLE, i, restptbuf, (u16)sizeof(restptbuf))<0)
                 {
@@ -1721,19 +1722,19 @@ int restore(int argc, char **argv, int oper)
             break;
     }
     
-    if (get_abort()==true)
+    if (get_status() == STATUS_ABORTED)
         msgprintf(MSG_FORCE, "operation aborted by user\n");
     
-    if (get_abort()==false && get_stopfillqueue()==false)
+    if (get_status() == STATUS_RUNNING)
         goto do_extract_success;
     
 do_extract_error:
     msgprintf(MSG_DEBUG1, "THREAD-MAIN2: exit error\n");
     ret=-1;
-    
+
 do_extract_success:
     msgprintf(MSG_DEBUG1, "THREAD-MAIN2: exit\n");
-    set_stopfillqueue(); // ask thread-archio to terminate
+    set_status(STATUS_FAILED);
     msgprintf(MSG_DEBUG2, "queue_count_items_todo(g_queue)=%d\n", (int)queue_count_items_todo(g_queue));
     while (queue_count_items_todo(g_queue)>0) // let thread_compress process all the pending blocks
     {

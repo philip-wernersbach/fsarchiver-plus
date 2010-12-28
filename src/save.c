@@ -164,7 +164,7 @@ int createar_obj_regfile_unique(csavear *save, cdico *header, char *relpath, cha
     queue_add_header(g_queue, header, FSA_MAGIC_OBJT, save->fsid);
     
     msgprintf(MSG_DEBUG1, "backup_obj_regfile_unique(file=%s, size=%lld)\n", relpath, (long long)filesize);
-    for (filepos=0; (filesize>0) && (filepos < filesize) && (get_interrupted()==false); filepos+=curblocksize)
+    for (filepos = 0; (filesize > 0) && (filepos < filesize) && (get_status() == STATUS_RUNNING); filepos += curblocksize)
     {
         remaining=filesize-filepos;
         curblocksize=min(remaining, g_options.datablocksize);
@@ -214,15 +214,17 @@ int createar_obj_regfile_unique(csavear *save, cdico *header, char *relpath, cha
         }
     }
     
-    if (get_interrupted()==true)
-    {   errprintf("operation has been interrupted\n");
+    if (get_status() != STATUS_RUNNING)
+    {
+        errprintf("operation has been interrupted\n");
         ret=-1;
         goto backup_obj_regfile_unique_error;
     }
     
     // write the footer with the global md5sum
     if ((md5tmp=gcry_md_read(md5ctx, GCRY_MD_MD5))==NULL)
-    {   errprintf("gcry_md_read() failed\n");
+    {
+        errprintf("gcry_md_read() failed\n");
         ret=-1;
         goto backup_obj_regfile_unique_error;
     }
@@ -628,7 +630,7 @@ int createar_save_file(csavear *save, char *root, char *relpath, struct stat64 *
     }
     
     // ---- file details and progress bar
-    if (get_interrupted()==false) 
+    if (get_status() == STATUS_RUNNING) 
     {
         memset(strprogress, 0, sizeof(strprogress));
         if (save->cost_global>0)
@@ -765,7 +767,7 @@ int createar_save_directory(csavear *save, char *root, char *path, u64 *costeval
         goto backup_dir_err;
     }
     
-    while (((dir = readdir(dirdesc)) != NULL) && (get_interrupted()==false))
+    while (((dir = readdir(dirdesc)) != NULL) && (get_status() == STATUS_RUNNING))
     {
         // ---- ignore "." and ".." and ignore mount-points
         if (strcmp(dir->d_name,".")==0 || strcmp(dir->d_name,"..")==0)
@@ -1299,7 +1301,7 @@ int save(int argc, char **argv, int archtype)
     switch (archtype)
     {
         case ARCHTYPE_FILESYSTEMS:// write contents of each filesystem
-            for (i=0; (i < argc) && (devinfo[i].devpath!=NULL) && (get_interrupted()==false); i++)
+            for (i=0; (i < argc) && (devinfo[i].devpath!=NULL) && (get_status() == STATUS_RUNNING); i++)
             {
                 msgprintf(MSG_VERB1, "============= archiving filesystem %s =============\n", devinfo[i].devpath);
                 save.fsid=i;
@@ -1308,7 +1310,7 @@ int save(int argc, char **argv, int archtype)
                 {   errprintf("archive_filesystem(%s) failed\n", devinfo[i].devpath);
                     goto do_create_error;
                 }
-                if (get_interrupted()==false)
+                if (get_status() == STATUS_RUNNING)
                     stats_show(save.stats, i);
                 totalerr+=stats_errcount(save.stats);
             }
@@ -1320,7 +1322,7 @@ int save(int argc, char **argv, int archtype)
             save.objectid=0;
             memset(&save.stats, 0, sizeof(save.stats));
             // write the contents of each directory passed on the command line
-            for (i=0; (i < argc) && (argv[i]!=NULL) && (get_interrupted()==false); i++)
+            for (i=0; (i < argc) && (argv[i]!=NULL) && (get_status() == STATUS_RUNNING); i++)
             {
                 msgprintf(MSG_VERB1, "============= archiving directory %s =============\n", argv[i]);
                 if (createar_oper_savedir(&save, argv[i])!=0)
@@ -1328,7 +1330,7 @@ int save(int argc, char **argv, int archtype)
                     goto do_create_error;
                 }
             }
-            if (get_interrupted()==false)
+            if (get_status() == STATUS_RUNNING)
                 stats_show(save.stats, 0);
             totalerr+=stats_errcount(save.stats);
             // write "end of archive" header
@@ -1345,10 +1347,10 @@ int save(int argc, char **argv, int archtype)
             errprintf("unsupported archtype: %d\n", archtype);
             goto do_create_error;
     }
-    
-    if (get_interrupted()==false)
+
+    if (get_status() == STATUS_RUNNING)
         goto do_create_success;
-    if (get_abort()==true)
+    if (get_status() == STATUS_ABORTED)
         msgprintf(MSG_FORCE, "operation aborted by user\n");
     
 do_create_error:

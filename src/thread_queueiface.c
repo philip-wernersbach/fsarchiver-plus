@@ -42,7 +42,7 @@ void *thread_dequeue_fct(void *args)
     // init
     inc_secthreads();
 
-    while (queue_get_end_of_queue(g_queue) == false)
+    while ((queue_get_end_of_queue(g_queue) == false) && (get_status() == STATUS_RUNNING))
     {
         if (((blknum = queue_dequeue_first(g_queue, &type, &headinfo, &blkinfo)) < 0) && (blknum != FSAERR_ENDOFFILE)) // error
         {
@@ -76,17 +76,20 @@ void *thread_dequeue_fct(void *args)
         }
     }
 
-    iobuffer_set_end_of_queue(g_iobuffer, true);
+    if (get_status() != STATUS_RUNNING)
+        goto thread_dequeue_fct_error;
+
+    iobuffer_set_end_of_buffer(g_iobuffer, true);
     msgprintf(MSG_DEBUG1, "THREAD-DEQUEUE: exit success\n");
     dec_secthreads();
     return NULL;
 
 thread_dequeue_fct_error:
-    msgprintf(MSG_DEBUG1, "THREAD-DEQUEUE: exit remove\n");
-    set_stopfillqueue(); // say to the main thread it must stop
+    set_status(STATUS_FAILED);
     while (queue_get_end_of_queue(g_queue)==false) // wait until all the compression threads exit
         queue_destroy_first_item(g_queue); // empty queue
-    iobuffer_set_end_of_queue(g_iobuffer, true);
+    iobuffer_set_end_of_buffer(g_iobuffer, true); // close iobuffer properly
+    msgprintf(MSG_DEBUG1, "THREAD-DEQUEUE: exit failure\n");
     dec_secthreads();
     return NULL;
 }
@@ -107,7 +110,7 @@ void *thread_enqueue_fct(void *args)
     errors=0;
     inc_secthreads();    
 
-    while (iobuffer_get_end_of_queue(g_iobuffer) == false)
+    while ((iobuffer_get_end_of_buffer(g_iobuffer) == false) && (get_status() == STATUS_RUNNING))
     {
         //if ((res = archreader_read_header(ai, magic, &dico, true, &fsid))!=FSAERR_SUCCESS)
         if ((res = iobuffer_read_header(g_iobuffer, magic, &dico, &fsid)) != FSAERR_SUCCESS)
@@ -166,10 +169,15 @@ void *thread_enqueue_fct(void *args)
         }
     }
 
-thread_enqueue_fct_error:
-    msgprintf(MSG_DEBUG1, "THREAD-ENQUEUE: queue_set_end_of_queue(g_queue, true)\n");
-    queue_set_end_of_queue(g_queue, true); // don't wait for more data from this thread
+    queue_set_end_of_queue(g_queue, true);
+    msgprintf(MSG_DEBUG1, "THREAD-ENQUEUE: exit success\n");
     dec_secthreads();
-    msgprintf(MSG_DEBUG1, "THREAD-ENQUEUE: exit\n");
+    return NULL;
+
+thread_enqueue_fct_error:
+    set_status(STATUS_FAILED);
+    queue_set_end_of_queue(g_queue, true);
+    msgprintf(MSG_DEBUG1, "THREAD-ENQUEUE: exit failure\n");
+    dec_secthreads();
     return NULL;
 }

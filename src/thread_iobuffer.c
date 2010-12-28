@@ -126,7 +126,7 @@ void *thread_iobuffer_writer_fct(void *args)
     }
 
     // main loop
-    while ((res = iobuffer_read_fec_block(g_iobuffer, buffer_raw, blocksize, &bytesused)) == FSAERR_SUCCESS)
+    while (((res = iobuffer_read_fec_block(g_iobuffer, buffer_raw, blocksize, &bytesused)) == FSAERR_SUCCESS) && (get_status() == STATUS_RUNNING))
     {
         /*
         char debugsum[16];
@@ -156,26 +156,27 @@ void *thread_iobuffer_writer_fct(void *args)
         blocknum++;
     }
 
-    if (res != FSAERR_ENDOFFILE)
+    if ((res != FSAERR_ENDOFFILE) || (get_status() != STATUS_RUNNING))
     {
-        errprintf("archio_read_block() failed with res=%d\n", res);
+        if ((res != 0) && (res != FSAERR_ENDOFFILE))
+            errprintf("archio_read_block() failed with res=%d\n", res);
         goto thread_iobuffer_writer_error;
     }
 
     fec_free(fec_handle);
     archio_close_write(ai, true);
-    msgprintf(MSG_DEBUG1, "THREAD-IOBUF-WRITER: exit success\n");
     archio_destroy(ai);
+    msgprintf(MSG_DEBUG1, "THREAD-IOBUF-WRITER: exit success\n");
     dec_secthreads();
     return NULL;
 
 thread_iobuffer_writer_error:
-    msgprintf(MSG_DEBUG1, "THREAD-IOBUF-WRITER: exit remove\n");
-    set_stopfillqueue(); // say to the main thread it must stop
+    set_status(STATUS_FAILED);
     fec_free(fec_handle);
     archio_close_write(ai, false);
     archio_delete_all(ai);
     archio_destroy(ai);
+    msgprintf(MSG_DEBUG1, "THREAD-IOBUF-WRITER: exit failure\n");
     dec_secthreads();
     return NULL;
 }
@@ -269,7 +270,7 @@ void *thread_iobuffer_reader_fct(void *args)
 
     // read all fec encoded blocks from archive (one fec encoded block = N packets)
     encodedsize = fec_value_n * (FSA_FEC_PACKET_SIZE + sizeof(cfecblockhead));
-    while ((res = archio_read_block(ai, buffer_fec, encodedsize, &bytesused)) == FSAERR_SUCCESS)
+    while (((res = archio_read_block(ai, buffer_fec, encodedsize, &bytesused)) == FSAERR_SUCCESS) && (get_status() == STATUS_RUNNING))
     {
         goodpkts = 0;
         badpkts = 0;
@@ -337,25 +338,28 @@ void *thread_iobuffer_reader_fct(void *args)
         blocknum++;
     }
 
-    if (res != FSAERR_ENDOFFILE)
+    if ((res != FSAERR_ENDOFFILE) || (get_status() != STATUS_RUNNING))
     {
-        errprintf("archio_read_block() failed with res=%d\n", res);
+        if ((res != 0) && (res != FSAERR_ENDOFFILE))
+            errprintf("archio_read_block() failed with res=%d\n", res);
         goto thread_iobuffer_reader_error;
     }
 
-    msgprintf(MSG_DEBUG1, "THREAD-IOBUF-READER: exit success\n");
+    iobuffer_set_end_of_buffer(g_iobuffer, true);
+    archio_close_read(ai);
     fec_free(fec_handle);
-    iobuffer_set_end_of_queue(g_iobuffer, true);
     archio_destroy(ai);
+    msgprintf(MSG_DEBUG1, "THREAD-IOBUF-READER: exit success\n");
     dec_secthreads();
     return NULL;
 
 thread_iobuffer_reader_error:
-    msgprintf(MSG_DEBUG1, "THREAD-IOBUF-READER: queue_set_end_of_queue(g_queue, true)\n");
+    set_status(STATUS_FAILED);
+    iobuffer_set_end_of_buffer(g_iobuffer, true);
+    archio_close_read(ai);
     fec_free(fec_handle);
-    iobuffer_set_end_of_queue(g_iobuffer, true);
-    queue_set_end_of_queue(g_queue, true); // don't wait for more data from this thread
+    archio_destroy(ai);
+    msgprintf(MSG_DEBUG1, "THREAD-IOBUF-READER: exit failure\n");
     dec_secthreads();
-    msgprintf(MSG_DEBUG1, "THREAD-IOBUF-READER: exit\n");
     return NULL;
 }

@@ -79,24 +79,24 @@ int iobuffer_destroy(ciobuffer *iob)
 }
 
 // true if eof flag set and no more block to read (no locking, for internal use only)
-bool iobuffer_get_end_of_queue_locked(ciobuffer *iob)
+bool iobuffer_get_end_of_buffer_locked(ciobuffer *iob)
 {
-    return ((iob->blocks_curcnt == 0) && (iob->endofqueue == true));
+    return ((iob->blocks_curcnt == 0) && (iob->endofbuffer == true));
 }
 
 // true if eof flag set and no more block to read
-bool iobuffer_get_end_of_queue(ciobuffer *iob)
+bool iobuffer_get_end_of_buffer(ciobuffer *iob)
 {
     bool res;
 
     assert(pthread_mutex_lock(&iob->mutex) == 0);
-    res = (iob->blocks_curcnt == 0) && (iob->endofqueue == true);
+    res = (iob->blocks_curcnt == 0) && (iob->endofbuffer == true);
     assert(pthread_mutex_unlock(&iob->mutex) == 0);
 
     return res;
 }
 
-int iobuffer_set_end_of_queue(ciobuffer *iob, bool state)
+int iobuffer_set_end_of_buffer(ciobuffer *iob, bool state)
 {
     cioblock *cur;
 
@@ -110,7 +110,7 @@ int iobuffer_set_end_of_queue(ciobuffer *iob, bool state)
     }
 
     // set the EOF flag
-    iob->endofqueue = state;
+    iob->endofbuffer = state;
 
     assert(pthread_mutex_unlock(&iob->mutex)==0);
     pthread_cond_broadcast(&iob->cond);
@@ -134,7 +134,7 @@ int iobuffer_write_fec_block(ciobuffer *iob, char *buffer, u32 bufsize, u32 byte
     assert(pthread_mutex_lock(&iob->mutex)==0);
 
     // does not make sense to add item on a queue where endofqueue is true
-    if (iob->endofqueue == true)
+    if (iob->endofbuffer == true)
     {
         assert(pthread_mutex_unlock(&iob->mutex)==0);
         return FSAERR_ENDOFFILE;
@@ -200,7 +200,7 @@ int iobuffer_read_fec_block(ciobuffer *iob, char *buffer, u32 bufsize, u32 *byte
         return FSAERR_UNKNOWN;
     }
 
-    while (iobuffer_get_end_of_queue_locked(iob) == false)
+    while (iobuffer_get_end_of_buffer_locked(iob) == false)
     {
         // use first block (head) if it exists and it is full
         if ((iob->blocks_curcnt > 0) && ((cur = iob->list_head) != NULL) && ((cur->bytes_used == iob->blocks_size) || (cur->eof == true)))
@@ -226,7 +226,7 @@ int iobuffer_read_fec_block(ciobuffer *iob, char *buffer, u32 bufsize, u32 *byte
         }
     }
 
-    eof = iobuffer_get_end_of_queue_locked(iob);
+    eof = iobuffer_get_end_of_buffer_locked(iob);
     assert(pthread_mutex_unlock(&iob->mutex)==0);
     return (eof == true) ? FSAERR_ENDOFFILE : FSAERR_UNKNOWN;
 }
@@ -250,7 +250,7 @@ int iobuffer_write_raw_data(ciobuffer *iob, char *buffer, u32 datasize)
         if ((cur == NULL) || (cur->bytes_used == iob->blocks_size))
         {
             // does not make sense to add item on a queue where endofqueue is true
-            if (iob->endofqueue == true)
+            if (iob->endofbuffer == true)
             {
                 assert(pthread_mutex_unlock(&iob->mutex)==0);
                 return FSAERR_ENDOFFILE;
@@ -497,7 +497,7 @@ int iobuffer_read_raw_data(ciobuffer *iob, char *buffer, u32 datasize)
         assert(pthread_mutex_lock(&iob->mutex)==0);
 
         // fail if EOF marker is set and no block in the list
-        if (iobuffer_get_end_of_queue_locked(iob) == true)
+        if (iobuffer_get_end_of_buffer_locked(iob) == true)
         {
             assert(pthread_mutex_unlock(&iob->mutex)==0);
             return FSAERR_ENDOFFILE;

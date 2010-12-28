@@ -19,17 +19,12 @@
 #define __SYNCTHREAD_H__
 
 // global threads sync data
-extern struct s_queue *g_queue; // queue use to share data between the three sort of threads
+extern struct s_queue *g_queue;
 extern struct s_iobuffer *g_iobuffer;
 
 // global threads sync functions
-int get_abort(); // returns true if threads must exit because an error or signal received
-
-bool get_interrupted(); // returns true if either abort is true of stopfillqueue is true
-
-// say to the thread that is filling the queue to stop
-void set_stopfillqueue();
-bool get_stopfillqueue();
+int get_status();
+void set_status(int status);
 
 // secondary threads counter
 void inc_secthreads();
