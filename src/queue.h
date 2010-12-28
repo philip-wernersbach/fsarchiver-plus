@@ -82,7 +82,7 @@ struct s_queue
 // c) "<0" QERR error number
 
 // init and destroy
-s64  queue_init(cqueue *l, s64 blkmax);
+cqueue *queue_alloc(s64 blkmax);
 s64  queue_destroy(cqueue *l);
 
 // information functions

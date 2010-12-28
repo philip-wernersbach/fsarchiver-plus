@@ -63,11 +63,11 @@ enum {BLOCKHEADITEMKEY_NULL=0, BLOCKHEADITEMKEY_REALSIZE, BLOCKHEADITEMKEY_BLOCK
 
 enum {BLOCKFOOTITEMKEY_NULL=0, BLOCKFOOTITEMKEY_MD5SUM};
 
-enum {MAINHEADKEY_NULL=0, MAINHEADKEY_FILEFORMATVER, MAINHEADKEY_PROGVERCREAT, MAINHEADKEY_ARCHIVEID, 
+enum {MAINHEADKEY_NULL=0, MAINHEADKEY_FILEFORMATVER, MAINHEADKEY_PROGVERCREAT, MAINHEADOLD_ARCHIVEID, 
       MAINHEADKEY_CREATTIME, MAINHEADKEY_ARCHLABEL, MAINHEADKEY_ARCHTYPE, MAINHEADKEY_FSCOUNT, 
       MAINHEADKEY_COMPRESSALGO, MAINHEADKEY_COMPRESSLEVEL, MAINHEADKEY_ENCRYPTALGO, 
       MAINHEADKEY_BUFCHECKPASSCLEARMD5, MAINHEADKEY_BUFCHECKPASSCRYPTBUF, MAINHEADKEY_FSACOMPLEVEL,
-      MAINHEADKEY_MINFSAVERSION, MAINHEADKEY_HASDIRSINFOHEAD, MAINHEADKEY_PTCOUNT};
+      MAINHEADKEY_MINFSAVERSION, MAINHEADOLD_HASDIRSINFOHEAD, MAINHEADKEY_PTCOUNT};
 
 enum {MAINHEADSEC_STD=0, MAINHEADSEC_PARTTABLE=1};
 
@@ -120,17 +120,27 @@ enum {OLDERR_FATAL=1,
 #define FSA_MAX_UUIDLEN          128
 #define FSA_MAX_BLKDEVICES       256
 
+#define FSA_MAX_SMALLFILECOUNT   512            // there can be up to FSA_MAX_SMALLFILECOUNT files copied in a single data block 
+#define FSA_MAX_SMALLFILESIZE    131072         // files smaller than that will be grouped with other small files in a single data block
+
 #define FSA_MAX_FSPERARCH        128
 #define FSA_MAX_PTPERARCH        128
 #define FSA_MAX_COMPJOBS         32
 #define FSA_MAX_QUEUESIZE        32
 #define FSA_MAX_BLKSIZE          921600
 #define FSA_DEF_BLKSIZE          262144
+#define FSA_DEF_ECCLEVEL         1              // default ecc level: add one extra FEC packet (N = K + 1) by default
+#define FSA_MIN_ECCLEVEL         0              // minimum ecc level: add no extra FEC packets: N = K
+#define FSA_MAX_ECCLEVEL         16             // minimum ecc level: add 16 extra FEC packets: N = K + 16
 #define FSA_DEF_COMPRESS_ALGO    COMPRESS_GZIP  // compress using gzip by default
 #define FSA_DEF_COMPRESS_LEVEL   6              // compress with "gzip -6" by default
-#define FSA_MAX_SMALLFILECOUNT   512            // there can be up to FSA_MAX_SMALLFILECOUNT files copied in a single data block 
-#define FSA_MAX_SMALLFILESIZE    131072         // files smaller than that will be grouped with other small files in a single data block
 #define FSA_COST_PER_FILE        16384          // how much it cost to copy an empty file/dir/link: used to eval the progress bar
+
+#define FSA_FEC_MAINHEAD_COPIES  2              // write two copies of the main fec header 
+#define FSA_FEC_IOBUFSIZE        128            // how many Forward-Error-Correction blocks (1 block = K chunks) in the iobuffer
+#define FSA_FEC_PACKET_SIZE      4096           // size of a packet passed to the Forward-Error-Correction algorithm
+#define FSA_FEC_VALUE_K          16             // number of raw chunks passed to the Forward-Error-Correction algorithm
+#define FSA_FEC_MAXVAL_N         (FSA_FEC_VALUE_K + FSA_MAX_ECCLEVEL) // maximum possible value for the N number in the FEC algorithm
 
 #define FSA_MAX_LABELLEN         512
 #define FSA_MIN_PASSLEN          6
@@ -143,8 +153,6 @@ enum {OLDERR_FATAL=1,
 
 // ----------------------------- fsarchiver magics --------------------------------------------------
 #define FSA_SIZEOF_MAGIC         4
-#define FSA_MAGIC_VOLH           "FsA0" // volume header (one per volume at the very beginning)
-#define FSA_MAGIC_VOLF           "FsAE" // volume footer (one per volume at the very end)
 #define FSA_MAGIC_MAIN           "ArCh" // archive header (one per archive at the beginning of the first volume)
 #define FSA_MAGIC_FSIN           "FsIn" // filesys info (one per filesystem at the beginning of the archive)
 #define FSA_MAGIC_FSYB           "FsYs" // filesys begin (one per filesystem when the filesys contents start)
@@ -154,8 +162,12 @@ enum {OLDERR_FATAL=1,
 #define FSA_MAGIC_FILF           "FiLf" // filedat footer (one per regfile, after the list of data blocks)
 #define FSA_MAGIC_DATF           "DaEn" // data footer (one per file system, at the end of its contents, or after the contents of the flatfiles)
 
+#define FSA_MAGIC_IOH            ((u32)0x72417346) // magic number written in the low-level ArchiveIO-Header ("FsAr" in little-endian)
+#define FSA_MAGIC_FEC            ((u32)0x68436546) // magic number written in the mid-level FEC-Header ("FeCh" in little-endian)
+
 // ------------ global variables ---------------------------
 extern char *valid_magic[];
+extern char g_archive[];
 
 // -------------------------------- version_number to u64 -------------------------------------------
 #define FSA_VERSION_BUILD(a, b, c, d)     ((u64)((((u64)a&0xFFFF)<<48)+(((u64)b&0xFFFF)<<32)+(((u64)c&0xFFFF)<<16)+(((u64)d&0xFFFF)<<0)))

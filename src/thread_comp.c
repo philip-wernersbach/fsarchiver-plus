@@ -252,9 +252,9 @@ int compression_function(int oper)
     s64 blknum;
     int res;
     
-    while (queue_get_end_of_queue(&g_queue)==false)
+    while (queue_get_end_of_queue(g_queue)==false)
     {
-        if ((blknum=queue_get_first_block_todo(&g_queue, &blkinfo))>0) // block found
+        if ((blknum=queue_get_first_block_todo(g_queue, &blkinfo))>0) // block found
         {
             switch (oper)
             {
@@ -273,7 +273,7 @@ int compression_function(int oper)
                 goto thread_comp_fct_error;
             }
             // don't check for errors: it's normal to fail when we terminate after a problem
-            queue_replace_block(&g_queue, blknum, &blkinfo, QITEM_STATUS_DONE);
+            queue_replace_block(g_queue, blknum, &blkinfo, QITEM_STATUS_DONE);
         }
     }
     

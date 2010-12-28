@@ -36,7 +36,7 @@
 #include "fsarchiver.h"
 #include "dico.h"
 #include "dichl.h"
-#include "archwriter.h"
+#include "archio.h"
 #include "options.h"
 #include "common.h"
 #include "save.h"
@@ -50,7 +50,8 @@
 #include "fs_btrfs.h"
 #include "fs_ntfs.h"
 #include "thread_comp.h"
-#include "thread_archio.h"
+#include "thread_queueiface.h"
+#include "thread_iobuffer.h"
 #include "layout_save.h"
 #include "syncthread.h"
 #include "regmulti.h"
@@ -59,7 +60,7 @@
 #include "queue.h"
 
 typedef struct s_savear
-{   carchwriter ai;
+{
     cregmulti   regmulti;
     cdichl      *dichardlinks;
     cstats      stats;
@@ -115,7 +116,7 @@ int createar_obj_regfile_multi(csavear *save, cdico *header, char *relpath, char
     // if shared-block with many small files is full, push it to queue and make a new one
     if (regmulti_save_enough_space_for_new_file(&save->regmulti, filesize)==false)
     {
-        if (regmulti_save_enqueue(&save->regmulti, &g_queue, save->fsid)!=0)
+        if (regmulti_save_enqueue(&save->regmulti, g_queue, save->fsid)!=0)
         {   errprintf("Cannot queue last block of small-files\n");
             return -1;
         }
@@ -160,7 +161,7 @@ int createar_obj_regfile_unique(csavear *save, cdico *header, char *relpath, cha
     }
     
     // write header with file attributes (only if open64() works)
-    queue_add_header(&g_queue, header, FSA_MAGIC_OBJT, save->fsid);
+    queue_add_header(g_queue, header, FSA_MAGIC_OBJT, save->fsid);
     
     msgprintf(MSG_DEBUG1, "backup_obj_regfile_unique(file=%s, size=%lld)\n", relpath, (long long)filesize);
     for (filepos=0; (filesize>0) && (filepos < filesize) && (get_interrupted()==false); filepos+=curblocksize)
@@ -206,7 +207,7 @@ int createar_obj_regfile_unique(csavear *save, cdico *header, char *relpath, cha
         blkinfo.blkdata=(char*)origblock;
         blkinfo.blkoffset=filepos;
         blkinfo.blkfsid=save->fsid;
-        if (queue_add_block(&g_queue, &blkinfo, QITEM_STATUS_TODO)!=0)
+        if (queue_add_block(g_queue, &blkinfo, QITEM_STATUS_TODO)!=0)
         {   sysprintf("queue_add_block(%s) failed\n", relpath);
             ret=-1;
             goto backup_obj_regfile_unique_error;
@@ -240,7 +241,7 @@ int createar_obj_regfile_unique(csavear *save, cdico *header, char *relpath, cha
         }
         dico_add_data(footerdico, 0, BLOCKFOOTITEMKEY_MD5SUM, md5sum, 16);
         
-        if (queue_add_header(&g_queue, footerdico, FSA_MAGIC_FILF, save->fsid)!=0)
+        if (queue_add_header(g_queue, footerdico, FSA_MAGIC_FILF, save->fsid)!=0)
         {   msgprintf(MSG_VERB2, "Cannot write footer for file %s\n", relpath);
             ret=-1;
             goto backup_obj_regfile_unique_error;
@@ -588,11 +589,11 @@ int createar_save_file(csavear *save, char *root, char *relpath, struct stat64 *
     concatenate_paths(fullpath, sizeof(fullpath), root, relpath);
     
     // don't backup the archive file itself
-    if (archwriter_is_path_to_curvol(&save->ai, fullpath)==true)
+    /*if (archio_is_path_to_curvol(&save->ai, fullpath)==true)
     {   errprintf("file [%s] ignored: it's the current archive file\n", fullpath);
         save->stats.err_regfile++;
         return 0; // not a fatal error, oper must continue
-    }
+    }*/
     
     // ---- backup standard file attributes
     if ((dicoattr=dico_alloc())==NULL)
@@ -648,7 +649,7 @@ int createar_save_file(csavear *save, char *root, char *relpath, struct stat64 *
                 dico_destroy(dicoattr);
                 return 0; // error is not fatal, operation must continue
             }
-            if (queue_add_header(&g_queue, dicoattr, FSA_MAGIC_OBJT, save->fsid)!=0)
+            if (queue_add_header(g_queue, dicoattr, FSA_MAGIC_OBJT, save->fsid)!=0)
             {   errprintf("queue_add_header(%s) failed\n", relpath);
                 return -1; // fatal error
             }
@@ -660,7 +661,7 @@ int createar_save_file(csavear *save, char *root, char *relpath, struct stat64 *
                 dico_destroy(dicoattr);
                 return 0; // error is not fatal, operation must continue
             }
-            if (queue_add_header(&g_queue, dicoattr, FSA_MAGIC_OBJT, save->fsid)!=0)
+            if (queue_add_header(g_queue, dicoattr, FSA_MAGIC_OBJT, save->fsid)!=0)
             {   errprintf("queue_add_header(%s) failed\n", relpath);
                 return -1; // fatal error
             }
@@ -672,7 +673,7 @@ int createar_save_file(csavear *save, char *root, char *relpath, struct stat64 *
                 dico_destroy(dicoattr);
                 return 0; // error is not fatal, operation must continue
             }
-            if (queue_add_header(&g_queue, dicoattr, FSA_MAGIC_OBJT, save->fsid)!=0)
+            if (queue_add_header(g_queue, dicoattr, FSA_MAGIC_OBJT, save->fsid)!=0)
             {   errprintf("queue_add_header(%s) failed\n", relpath);
                 return -1; // fatal error
             }
@@ -687,7 +688,7 @@ int createar_save_file(csavear *save, char *root, char *relpath, struct stat64 *
                 dico_destroy(dicoattr);
                 return 0; // error is not fatal, operation must continue
             }
-            if (queue_add_header(&g_queue, dicoattr, FSA_MAGIC_OBJT, save->fsid)!=0)
+            if (queue_add_header(g_queue, dicoattr, FSA_MAGIC_OBJT, save->fsid)!=0)
             {   errprintf("queue_add_header(%s) failed\n", relpath);
                 return -1; // fatal error
             }
@@ -831,7 +832,7 @@ int createar_save_directory_wrapper(csavear *save, char *root, char *path, u64 *
     ret=createar_save_directory(save, root, path, costeval);
     
     // put all small files that are in the last block to the queue
-    if (regmulti_save_enqueue(&save->regmulti, &g_queue, save->fsid)!=0)
+    if (regmulti_save_enqueue(&save->regmulti, g_queue, save->fsid)!=0)
     {   errprintf("Cannot queue last block of small-files\n");
         return -1;
     }
@@ -868,16 +869,16 @@ int createar_write_mainhead(csavear *save, int archtype, int fscount)
     dico_add_string(d, MAINHEADSEC_STD, MAINHEADKEY_PROGVERCREAT, FSA_VERSION);
     dico_add_string(d, MAINHEADSEC_STD, MAINHEADKEY_ARCHLABEL, g_options.archlabel);
     dico_add_u64(d, MAINHEADSEC_STD, MAINHEADKEY_CREATTIME, now.tv_sec);
-    dico_add_u32(d, MAINHEADSEC_STD, MAINHEADKEY_ARCHIVEID, save->ai.archid);
+    //dico_add_u32(d, MAINHEADSEC_STD, MAINHEADKEY_ARCHIVEID, save->ai.archid);
     dico_add_u32(d, MAINHEADSEC_STD, MAINHEADKEY_ARCHTYPE, archtype);
     dico_add_u32(d, MAINHEADSEC_STD, MAINHEADKEY_COMPRESSALGO, g_options.compressalgo);
     dico_add_u32(d, MAINHEADSEC_STD, MAINHEADKEY_COMPRESSLEVEL, g_options.compresslevel);
     dico_add_u32(d, MAINHEADSEC_STD, MAINHEADKEY_ENCRYPTALGO, g_options.encryptalgo);
     dico_add_u32(d, MAINHEADSEC_STD, MAINHEADKEY_FSACOMPLEVEL, g_options.fsacomplevel);
-    dico_add_u32(d, MAINHEADSEC_STD, MAINHEADKEY_HASDIRSINFOHEAD, true);
+    //dico_add_u32(d, MAINHEADSEC_STD, MAINHEADKEY_HASDIRSINFOHEAD, true);
     
     // minimum fsarchiver version required to restore that archive
-    dico_add_u64(d, MAINHEADSEC_STD, MAINHEADKEY_MINFSAVERSION, FSA_VERSION_BUILD(0, 6, 4, 0));
+    dico_add_u64(d, MAINHEADSEC_STD, MAINHEADKEY_MINFSAVERSION, FSA_VERSION_BUILD(0, 7, 0, 0));
     
     if (archtype==ARCHTYPE_FILESYSTEMS)
     {   
@@ -907,7 +908,7 @@ int createar_write_mainhead(csavear *save, int archtype, int fscount)
         assert(dico_add_data(d, MAINHEADSEC_STD, MAINHEADKEY_BUFCHECKPASSCRYPTBUF, bufcheckcrypt, FSA_CHECKPASSBUF_SIZE)==0);
     }
     
-    if (queue_add_header(&g_queue, d, FSA_MAGIC_MAIN, FSA_FILESYSID_NULL)!=0)
+    if (queue_add_header(g_queue, d, FSA_MAGIC_MAIN, FSA_FILESYSID_NULL)!=0)
     {   errprintf("cannot write dico for main header\n");
         dico_destroy(d);
         return -1;
@@ -1080,7 +1081,7 @@ int createar_oper_savefs(csavear *save, cdevinfo *devinfo)
     {   errprintf("dicostart=dico_alloc() failed\n");
         return -1;
     }
-    queue_add_header(&g_queue, dicobegin, FSA_MAGIC_FSYB, save->fsid);
+    queue_add_header(g_queue, dicobegin, FSA_MAGIC_FSYB, save->fsid);
     
     // init filesystem data struct
     save->fstype=devinfo->fstype;
@@ -1095,7 +1096,7 @@ int createar_oper_savefs(csavear *save, cdevinfo *devinfo)
     }
     
     // TODO: add stats about files count in that dico
-    queue_add_header(&g_queue, dicoend, FSA_MAGIC_DATF, save->fsid);
+    queue_add_header(g_queue, dicoend, FSA_MAGIC_DATF, save->fsid);
     
     return ret;
 }
@@ -1119,12 +1120,13 @@ int createar_oper_savedir(csavear *save, char *rootdir)
     return 0;
 }
 
-int save(char *archive, int argc, char **argv, int archtype)
+int save(int argc, char **argv, int archtype)
 {
-    pthread_t thread_comp[FSA_MAX_COMPJOBS];
+    pthread_t thread_comp[FSA_MAX_COMPJOBS]; // reads blocks from queue and does compression/encryption
+    pthread_t thread_writer; // read headers and blocks from queue, and write bytes to iobuffer
+    pthread_t thread_iobuffer; // reads bytes from iobuffer, does fec_encode, write data to archive + splitting
     cdico *dicofsinfo[FSA_MAX_FSPERARCH];
     cdevinfo devinfo[FSA_MAX_FSPERARCH];
-    pthread_t thread_writer;
     u64 cost_evalfs=0;
     u64 totalerr=0;
     cdico *dicoend=NULL;
@@ -1139,11 +1141,11 @@ int save(char *archive, int argc, char **argv, int archtype)
     save.cost_global=0;
     
     // init archive
-    archwriter_init(&save.ai);
-    archwriter_generate_id(&save.ai);
+    //archio_init(&save.ai);
+    //archio_generate_id(&save.ai);
     
     // pass options to archive
-    path_force_extension(save.ai.basepath, PATH_MAX, archive, ".fsa");
+    //path_force_extension(save.ai.basepath, PATH_MAX, archive, ".fsa");
     
     // init misc data struct to zero
     thread_writer=0;
@@ -1188,21 +1190,29 @@ int save(char *archive, int argc, char **argv, int archtype)
             goto do_create_error;
         }
     }
-    
-    // create archive-writer thread
-    if (pthread_create(&thread_writer, NULL, thread_writer_fct, (void*)&save.ai) != 0)
-    {   errprintf("pthread_create(thread_writer_fct) failed\n");
+
+    // create dequeue thread
+    if (pthread_create(&thread_writer, NULL, thread_dequeue_fct, NULL) != 0)
+    {   errprintf("pthread_create(thread_dequeue_fct) failed\n");
         ret=-1;
         goto do_create_error;
     }
     
+    // create iobuffer-writer thread
+    if (pthread_create(&thread_iobuffer, NULL, thread_iobuffer_writer_fct, NULL) != 0)
+    {   errprintf("pthread_create(thread_iobuffer_writer_fct) failed\n");
+        ret=-1;
+        goto do_create_error;
+    }
+
     // write archive main header
     if (createar_write_mainhead(&save, archtype, argc)!=0)
-    {   errprintf("archive_write_mainhead(%s) failed\n", archive);
+    {
+        errprintf("archive_write_mainhead() failed\n");
         ret=-1;
         goto do_create_error;
     }
-    
+
     // mount and analyse each filesystem (only if archtype==ARCHTYPE_FILESYSTEMS)
     if (archtype==ARCHTYPE_FILESYSTEMS)
     {
@@ -1241,7 +1251,7 @@ int save(char *archive, int argc, char **argv, int archtype)
             save.cost_global+=cost_evalfs;
             
             // write filesystem header
-            if (queue_add_header(&g_queue, dicofsinfo[i], FSA_MAGIC_FSIN, FSA_FILESYSID_NULL)!=0)
+            if (queue_add_header(g_queue, dicofsinfo[i], FSA_MAGIC_FSIN, FSA_FILESYSID_NULL)!=0)
             {   errprintf("queue_add_header(FSA_MAGIC_FSIN, %s) failed\n", devinfo[i].devpath);
                 goto do_create_error;
             }
@@ -1274,7 +1284,7 @@ int save(char *archive, int argc, char **argv, int archtype)
             goto do_create_error;
         }
         
-        if (queue_add_header(&g_queue, dirsinfo, FSA_MAGIC_DIRS, FSA_FILESYSID_NULL)!=0)
+        if (queue_add_header(g_queue, dirsinfo, FSA_MAGIC_DIRS, FSA_FILESYSID_NULL)!=0)
         {   errprintf("queue_add_header(FSA_MAGIC_DIRS) failed\n");
             goto do_create_error;
         }
@@ -1328,7 +1338,7 @@ int save(char *archive, int argc, char **argv, int archtype)
             }
             
             // TODO: add stats about files count in that dico
-            queue_add_header(&g_queue, dicoend, FSA_MAGIC_DATF, FSA_FILESYSID_NULL);
+            queue_add_header(g_queue, dicoend, FSA_MAGIC_DATF, FSA_FILESYSID_NULL);
             break;
             
         default: // invalid option
@@ -1360,7 +1370,7 @@ do_create_success:
         }
     }
     
-    queue_set_end_of_queue(&g_queue, true); // other threads must not wait for more data from this thread
+    queue_set_end_of_queue(g_queue, true); // other threads must not wait for more data from this thread
     
     for (i=0; (i<g_options.compressjobs) && (i<FSA_MAX_COMPJOBS); i++)
         if (thread_comp[i] && pthread_join(thread_comp[i], NULL) != 0)
@@ -1369,13 +1379,16 @@ do_create_success:
     if (thread_writer && pthread_join(thread_writer, NULL) != 0)
         errprintf("pthread_join(thread_writer) failed\n");
     
-    if (ret!=0)
-        archwriter_remove(&save.ai);
+    if (thread_iobuffer && pthread_join(thread_iobuffer, NULL) != 0)
+        errprintf("pthread_join(thread_iobuffer) failed\n");
+    
+    /*if (ret!=0)
+        archio_remove(&save.ai);*/
     
     // change the status if there were non-fatal errors
     if (totalerr>0)
         ret=-1;
     
-    archwriter_destroy(&save.ai);
+    //archio_destroy(&save.ai);
     return ret;
 }

@@ -18,6 +18,6 @@
 #ifndef __SAVE_H__
 #define __SAVE_H__
 
-int save(char *archive, int argc, char **argv, int archtype);
+int save(int argc, char **argv, int archtype);
 
 #endif // __SAVE_H__

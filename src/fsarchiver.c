@@ -24,6 +24,7 @@
 #include <signal.h>
 #include <getopt.h>
 #include <stdlib.h>
+#include <assert.h>
 
 #include "fsarchiver.h"
 #include "dico.h"
@@ -39,24 +40,28 @@
 #include "logfile.h"
 #include "error.h"
 #include "queue.h"
+#include "iobuffer.h"
+#include "archio.h"
 #include "layout_save.h"
 #include "layout_rest.h"
 
-char *valid_magic[]={FSA_MAGIC_MAIN, FSA_MAGIC_VOLH, FSA_MAGIC_VOLF, 
-    FSA_MAGIC_FSIN, FSA_MAGIC_FSYB, FSA_MAGIC_DATF, FSA_MAGIC_OBJT, 
-    FSA_MAGIC_BLKH, FSA_MAGIC_FILF, FSA_MAGIC_DIRS, NULL};
+char *valid_magic[]={FSA_MAGIC_MAIN, FSA_MAGIC_FSIN, FSA_MAGIC_FSYB, 
+    FSA_MAGIC_DATF, FSA_MAGIC_OBJT, FSA_MAGIC_BLKH, FSA_MAGIC_FILF, 
+    FSA_MAGIC_DIRS, NULL};
+
+char g_archive[PATH_MAX];
 
 void usage(char *progname, bool examples)
 {
     int lzo=false, lzma=false;
-    
+
 #ifdef OPTION_LZO_SUPPORT
     lzo=true;
 #endif // OPTION_LZO_SUPPORT
 #ifdef OPTION_LZMA_SUPPORT
     lzma=true;
 #endif // OPTION_LZMA_SUPPORT
-    
+
     msgprintf(MSG_FORCE, "====> fsarchiver version %s (%s) - http://www.fsarchiver.org <====\n", FSA_VERSION, FSA_RELDATE);
     msgprintf(MSG_FORCE, "Distributed under the GPL v2 license (GNU General Public License v2).\n");
     msgprintf(MSG_FORCE, " * usage: %s [<options>] <command> <archive> [<part1> [<part2> [...]]]\n", progname);
@@ -79,6 +84,7 @@ void usage(char *progname, bool examples)
     msgprintf(MSG_FORCE, " -N: do not save a copy the partition tables of local disks during the savefs\n");
     msgprintf(MSG_FORCE, " -e <pattern>: exclude files and directories that match that pattern\n");
     msgprintf(MSG_FORCE, " -L <label>: set the label of the archive (comment about the contents)\n");
+    msgprintf(MSG_FORCE, " -y <level>: error-correction level from %d (no correction) to %d (best) default=%d\n", FSA_MIN_ECCLEVEL, FSA_MAX_ECCLEVEL, FSA_DEF_ECCLEVEL);
     msgprintf(MSG_FORCE, " -z <level>: compression level from 1 (very fast)  to  9 (very good) default=3\n");
     msgprintf(MSG_FORCE, " -s <mbsize>: split the archive into several files of <mbsize> megabytes each\n");
     msgprintf(MSG_FORCE, " -j <count>: create more than one compression thread. useful on multi-core cpu\n");
@@ -139,6 +145,7 @@ static struct option const long_options[] =
     {"nosavept", no_argument, NULL, 'N'},
     {"verbose", no_argument, NULL, 'v'},
     {"debug", no_argument, NULL, 'd'},
+    {"ecclevel", required_argument, NULL, 'y'},
     {"compress", required_argument, NULL, 'z'},
     {"jobs", required_argument, NULL, 'j'},
     {"help", no_argument, NULL, 'h'},
@@ -152,42 +159,39 @@ static struct option const long_options[] =
 
 int process_cmdline(int argc, char **argv)
 {
-    //char *partition[FSA_MAX_FSPERARCH];
     bool runasroot=true;
     char *probemode;
     sigset_t mask_set;
     bool probedetailed=0;
     char *command=NULL;
-    char *archive=NULL;
     char tempbuf[1024];
     char *progname;
-    //int fscount;
     int argcok;
     int ret=0;
     int cmd;
     int c;
     
     // init
-    //memset(partition, 0, sizeof(partition));
     progname=argv[0];
     
     // set default options
-    g_options.overwrite=false;
-    g_options.allowsaverw=false;
-    g_options.dontcheckmountopts=false;
-    g_options.nosavept=false;
-    g_options.verboselevel=0;
-    g_options.debuglevel=0;
-    g_options.compressjobs=1;
-    g_options.fsacomplevel=3; // fsa level 3 = "gzip -6"
-    g_options.compressalgo=FSA_DEF_COMPRESS_ALGO;
-    g_options.compresslevel=FSA_DEF_COMPRESS_LEVEL; // default level for gzip
-    g_options.datablocksize=FSA_DEF_BLKSIZE;
-    g_options.encryptalgo=ENCRYPT_NONE;
+    g_options.overwrite = false;
+    g_options.allowsaverw = false;
+    g_options.dontcheckmountopts = false;
+    g_options.nosavept = false;
+    g_options.verboselevel = 0;
+    g_options.debuglevel = 0;
+    g_options.compressjobs = 1;
+    g_options.ecclevel = FSA_DEF_ECCLEVEL;
+    g_options.fsacomplevel = 3; // fsa level 3  =  "gzip -6"
+    g_options.compressalgo = FSA_DEF_COMPRESS_ALGO;
+    g_options.compresslevel = FSA_DEF_COMPRESS_LEVEL; // default level for gzip
+    g_options.datablocksize = FSA_DEF_BLKSIZE;
+    g_options.encryptalgo = ENCRYPT_NONE;
     snprintf(g_options.archlabel, sizeof(g_options.archlabel), "<none>");
-    g_options.encryptpass[0]=0;
+    g_options.encryptpass[0] = 0;
     
-    while ((c = getopt_long(argc, argv, "oaAvdz:j:hVs:c:L:e:N", long_options, NULL)) != EOF)
+    while ((c = getopt_long(argc, argv, "oaAvdy:z:j:hVs:c:L:e:N", long_options, NULL)) != EOF)
     {
         switch (c)
         {
@@ -238,23 +242,35 @@ int process_cmdline(int argc, char **argv)
                         (long long)g_options.splitsize, format_size(g_options.splitsize, tempbuf, sizeof(tempbuf), 'h'));
                 }
                 break;
-            case 'z': // compression level
-                g_options.fsacomplevel=atoi(optarg);
-                if (g_options.fsacomplevel<1 || g_options.fsacomplevel>9)
-                {   errprintf("[%s] is not a valid compression level, it must be an integer between 1 and 9.\n", optarg);
+            case 'y': // fec correction level
+                g_options.ecclevel = atoi(optarg);
+                if ((g_options.ecclevel < FSA_MIN_ECCLEVEL) || (g_options.ecclevel > FSA_MAX_ECCLEVEL))
+                {
+                    errprintf("[%s] is not a valid error-correction-code level, it must be an "
+                        "integer between %d and %d.\n", optarg, FSA_MIN_ECCLEVEL, FSA_MAX_ECCLEVEL);
                     usage(progname, false);
                     return -1;
                 }
-                if (options_select_compress_level(g_options.fsacomplevel)<0)
+                break;
+            case 'z': // compression level
+                g_options.fsacomplevel = atoi(optarg);
+                if ((g_options.fsacomplevel < 1) || (g_options.fsacomplevel > 9))
+                {
+                    errprintf("[%s] is not a valid compression level, it must be an integer between 1 and 9.\n", optarg);
+                    usage(progname, false);
                     return -1;
-                if (g_options.fsacomplevel>=8)
+                }
+                if (options_select_compress_level(g_options.fsacomplevel) < 0)
+                    return -1;
+                if (g_options.fsacomplevel >= 8)
                     msgprintf(MSG_FORCE, "Compression levels >= 8 may require a huge amount of memory\n"
                         "Please read the man page or \"http://www.fsarchiver.org/Compression\" for more details.\n");
                 break;
             case 'c': // encryption
-                g_options.encryptalgo=ENCRYPT_BLOWFISH;
-                if ((strlen(optarg)<FSA_MIN_PASSLEN || strlen(optarg)>FSA_MAX_PASSLEN) && strcmp(optarg, "-")!=0)
-                {   errprintf("the password lenght is incorrect, it must between %d and %d chars, or \"-\" for interactive password prompt.\n", FSA_MIN_PASSLEN, FSA_MAX_PASSLEN);
+                g_options.encryptalgo = ENCRYPT_BLOWFISH;
+                if (((strlen(optarg) < FSA_MIN_PASSLEN) || (strlen(optarg) > FSA_MAX_PASSLEN)) && (strcmp(optarg, "-") != 0))
+                {
+                    errprintf("the password lenght is incorrect, it must between %d and %d chars, or \"-\" for interactive password prompt.\n", FSA_MIN_PASSLEN, FSA_MAX_PASSLEN);
                     usage(progname, false);
                     return -1;
                 }
@@ -277,12 +293,13 @@ int process_cmdline(int argc, char **argv)
     
     // in all cases we need at least 1 parameters
     if (argc < 1)
-    {   fprintf(stderr, "No arguments provided, cannot continue\n");
+    {
+        fprintf(stderr, "No arguments provided, cannot continue\n");
         usage(progname, false);
         return -1;
     }
     else // mandatory and unique parameters
-    {   
+    {
         command=*argv++, argc--;
     }
     
@@ -291,22 +308,26 @@ int process_cmdline(int argc, char **argv)
     
     // convert commands to integers
     if (strcmp(command, "savefs")==0)
-    {   cmd=OPER_SAVEFS;
+    {
+        cmd=OPER_SAVEFS;
         runasroot=true;
         argcok=(argc>=2);
     }
     else if (strcmp(command, "restfs")==0)
-    {   cmd=OPER_RESTFS;
+    {
+        cmd=OPER_RESTFS;
         runasroot=true;
         argcok=(argc>=2);
     }
     else if (strcmp(command, "savedir")==0)
-    {   cmd=OPER_SAVEDIR;
+    {
+        cmd=OPER_SAVEDIR;
         runasroot=true;
         argcok=(argc>=2);
     }
     else if (strcmp(command, "restdir")==0)
-    {   cmd=OPER_RESTDIR;
+    {
+        cmd=OPER_RESTDIR;
         runasroot=true;
         argcok=(argc==2);
     }
@@ -316,41 +337,48 @@ int process_cmdline(int argc, char **argv)
         argcok=(argc==1);
     }
     else if (strcmp(command, "probe")==0)
-    {   cmd=OPER_PROBE;
+    {
+        cmd=OPER_PROBE;
         runasroot=true;
         argcok=(argc<=1);
     }
     else if (strcmp(command, "savept")==0)
-    {   cmd=OPER_SAVEPT;
+    {
+        cmd=OPER_SAVEPT;
         runasroot=true;
         argcok=(argc==1);
     }
     else if (strcmp(command, "restpt")==0)
-    {   cmd=OPER_RESTPT;
+    {
+        cmd=OPER_RESTPT;
         runasroot=true;
         argcok=(argc>=2);
     }
     else if (strcmp(command, "showpt")==0)
-    {   cmd=OPER_SHOWPT;
+    {
+        cmd=OPER_SHOWPT;
         runasroot=false;
         argcok=(argc==1);
     }
     else // command not found
-    {   errprintf("[%s] is not a valid command.\n", command);
+    {
+        errprintf("[%s] is not a valid command.\n", command);
         usage(progname, false);
         return -1;
     }
     
     // check there are enough parameters on the cmd line
     if (argcok!=true)
-    {   errprintf("invalid number of arguments.\n");
+    {
+        errprintf("invalid number of arguments.\n");
         usage(progname, false);
         return -1;
     }
     
     // check if must be run as root
     if (runasroot==true && geteuid()!=0)
-    {   errprintf("\"fsarchiver %s\" must be run as root. cannot continue.\n", command);
+    {
+        errprintf("\"fsarchiver %s\" must be run as root. cannot continue.\n", command);
         return -1;
     }
     
@@ -362,11 +390,13 @@ int process_cmdline(int argc, char **argv)
          
         passconfirm = (cmd==OPER_SAVEFS || cmd==OPER_SAVEDIR);
         if ((passtmp=getpass("Enter password: "))==NULL)
-        {   errprintf("failed to get interactive password from the console\n");
+        {
+            errprintf("failed to get interactive password from the console\n");
             return -1;
         }
         if (strlen(passtmp)<FSA_MIN_PASSLEN || strlen(passtmp)>FSA_MAX_PASSLEN)
-        {   errprintf("the password lenght is incorrect, it must between %d and %d chars\n", FSA_MIN_PASSLEN, FSA_MAX_PASSLEN);
+        {
+            errprintf("the password lenght is incorrect, it must between %d and %d chars\n", FSA_MIN_PASSLEN, FSA_MAX_PASSLEN);
             return -1;
         }
         snprintf((char*)g_options.encryptpass, FSA_MAX_PASSLEN, "%s", passtmp);
@@ -374,11 +404,13 @@ int process_cmdline(int argc, char **argv)
         if (passconfirm==true)
         {
             if ((passtmp=getpass("Confirm password: "))==NULL)
-            {   errprintf("failed to get interactive password from the console\n");
+            {
+                errprintf("failed to get interactive password from the console\n");
                 return -1;
             }
             if (strcmp((char*)g_options.encryptpass, passtmp)!=0)
-            {   errprintf("the passwords do not match\n");
+            {
+                errprintf("the passwords do not match\n");
                 return -1;
             }
         }
@@ -395,7 +427,10 @@ int process_cmdline(int argc, char **argv)
         case OPER_SAVEPT:
         case OPER_RESTPT:
         case OPER_SHOWPT:
-            archive=*argv++, argc--;
+            snprintf(g_archive, PATH_MAX, *argv);
+            argv++;
+            argc--;
+            fprintf(stderr, "This is a development version: the file format is unstable and will change in the future.\n");
             break;
         case OPER_PROBE:
             probedetailed=false; // do "simple" by default
@@ -426,17 +461,17 @@ int process_cmdline(int argc, char **argv)
     {
         case OPER_SAVEFS:
         case OPER_SAVEPT:
-            ret=save(archive, argc, argv, ARCHTYPE_FILESYSTEMS);
+            ret=save(argc, argv, ARCHTYPE_FILESYSTEMS);
             break;
         case OPER_SAVEDIR:
-            ret=save(archive, argc, argv, ARCHTYPE_DIRECTORIES);
+            ret=save(argc, argv, ARCHTYPE_DIRECTORIES);
             break;
         case OPER_RESTFS:
         case OPER_RESTDIR:
         case OPER_ARCHINFO:
         case OPER_RESTPT:
         case OPER_SHOWPT:
-            ret=restore(archive, argc, argv, cmd);
+            ret=restore(argc, argv, cmd);
             break;
         case OPER_PROBE:
             ret=oper_probe(probedetailed);
@@ -490,34 +525,51 @@ int main(int argc, char **argv)
     serializer_destroy(serial1);
     serializer_destroy(serial2);
     return 0;*/
-    
+
+    // check that datatypes are ok
+    assert(sizeof(ciohead)==32);
+
     // init the lzo library
 #ifdef OPTION_LZO_SUPPORT
     if (lzo_init() != LZO_E_OK)
-    {   errprintf("internal error - lzo_init() failed\n");
+    {
+        errprintf("internal error - lzo_init() failed\n");
         exit(EXIT_FAILURE);
     }
 #endif // OPTION_LZO_SUPPORT
-    
+
     // init libgcrypt
     if (crypto_init()!=0)
-    {   errprintf("cannot initialize the crypto environment\n");
+    {
+        errprintf("cannot initialize the crypto environment\n");
         exit(EXIT_FAILURE);
     }
-    
+
     // init
     options_init();
-    queue_init(&g_queue, FSA_MAX_QUEUESIZE);
-    
+
+    if ((g_queue=queue_alloc(FSA_MAX_QUEUESIZE)) == NULL)
+    {
+        errprintf("cannot initialize g_iobuffer\n");
+        exit(EXIT_FAILURE);
+    }
+
+    if ((g_iobuffer=iobuffer_alloc(FSA_FEC_IOBUFSIZE, FSA_FEC_VALUE_K * FSA_FEC_PACKET_SIZE)) == NULL)
+    {
+        errprintf("cannot initialize g_iobuffer (size of buffer: %d bytes)\n", (int)FSA_FEC_IOBUFSIZE);
+        exit(EXIT_FAILURE);
+    }
+
     // bulk of the program
     ret=process_cmdline(argc, argv);
 
     // cleanup
-    queue_destroy(&g_queue);
+    iobuffer_destroy(g_iobuffer);
+    queue_destroy(g_queue);
     options_destroy();
-    
+
     // cleanup libgcrypt
     crypto_cleanup();
-    
+
     return !!ret;
 }

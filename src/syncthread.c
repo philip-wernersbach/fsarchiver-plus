@@ -24,10 +24,12 @@
 #include "fsarchiver.h"
 #include "fsarchiver.h"
 #include "syncthread.h"
+#include "iobuffer.h"
 #include "queue.h"
 
 // queue use to share data between the three sort of threads
-cqueue g_queue;
+cqueue *g_queue = NULL;
+ciobuffer *g_iobuffer = NULL;
 
 // filesystem bitmap used by do_extract() to say to threadio_readimg which filesystems to skip
 // eg: "g_fsbitmap[0]=1,g_fsbitmap[1]=0" means that we want to read filesystem 0 and skip fs 1

@@ -15,11 +15,12 @@
  * Homepage: http://www.fsarchiver.org
  */
 
-#ifndef __RESTORE_H__
-#define __RESTORE_H__
+#ifndef __THREAD_IOBUFFER_H__
+#define __THREAD_IOBUFFER_H__
 
-#include "dico.h"
+#include <pthread.h>
 
-int restore(int argc, char **argv, int oper);
+void *thread_iobuffer_writer_fct(void *args);
+void *thread_iobuffer_reader_fct(void *args);
 
-#endif // __RESTORE_H__
+#endif // __THREAD_IOBUFFER_H__

@@ -15,12 +15,12 @@
  * Homepage: http://www.fsarchiver.org
  */
 
-#ifndef __THREAD_WRITER_H__
-#define __THREAD_WRITER_H__
+#ifndef __THREAD_QUEUEIFACE_H__
+#define __THREAD_QUEUEIFACE_H__
 
 #include <pthread.h>
 
-void *thread_writer_fct(void *args);
-void *thread_reader_fct(void *args);
+void *thread_enqueue_fct(void *args);
+void *thread_dequeue_fct(void *args);
 
-#endif // __THREAD_WRITER_H__
+#endif // __THREAD_QUEUEIFACE_H__

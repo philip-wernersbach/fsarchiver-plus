@@ -35,7 +35,7 @@
 #include "syncthread.h"
 #include "error.h"
 
-struct timespec get_timeout()
+struct timespec queue_get_timeout()
 {
     struct timespec t;
     clock_gettime(CLOCK_REALTIME, &t);
@@ -43,15 +43,14 @@ struct timespec get_timeout()
     return t;
 }
 
-s64 queue_init(cqueue *q, s64 blkmax)
+cqueue *queue_alloc(s64 blkmax)
 {
     pthread_mutexattr_t attr;
+    cqueue *q;
 
-    if (!q)
-    {   errprintf("q is NULL\n");
-        return FSAERR_EINVAL;
-    }
-    
+    if ((q=calloc(1, sizeof(cqueue)))==NULL)
+        return NULL;
+
     // ---- init default attributes
     q->head=NULL;
     q->curitemnum=1;
@@ -59,48 +58,47 @@ s64 queue_init(cqueue *q, s64 blkmax)
     q->blkcount=0;
     q->blkmax=blkmax;
     q->endofqueue=false;
-    
+
     // ---- init pthread structures
     assert(pthread_mutexattr_init(&attr)==0);
     assert(pthread_mutexattr_settype(&attr, PTHREAD_MUTEX_ERRORCHECK)==0);
     if (pthread_mutex_init(&q->mutex, &attr)!=0)
-    {   msgprintf(3, "pthread_mutex_init failed\n");
-        return FSAERR_UNKNOWN;
+    {
+        msgprintf(3, "pthread_mutex_init failed\n");
+        return NULL;
     }
-    
+
     if (pthread_cond_init(&q->cond,NULL)!=0)
-    {   msgprintf(3, "pthread_cond_init failed\n");
-        return FSAERR_UNKNOWN;
+    {
+        msgprintf(3, "pthread_cond_init failed\n");
+        return NULL;
     }
     
-    return FSAERR_SUCCESS;
+    return q;
 }
 
 s64 queue_destroy(cqueue *q)
 {
     cqueueitem *cur;
     cqueueitem *next;
-    
-    if (!q)
-    {   errprintf("q is NULL\n");
-        return FSAERR_EINVAL;
-    }
-    
-    assert(pthread_mutex_lock(&q->mutex)==0);
-    
-    for (cur=q->head; cur!=NULL; cur=next)
+
+    if (q != NULL)
     {
-        next=cur->next;
-        free(cur);
+        assert(pthread_mutex_lock(&q->mutex)==0);
+        
+        for (cur=q->head; cur!=NULL; cur=next)
+        {
+            next=cur->next;
+            free(cur);
+        }
+        q->head=NULL;
+        q->itemcount=0;
+
+        assert(pthread_mutex_unlock(&q->mutex)==0);
+        assert(pthread_mutex_destroy(&q->mutex)==0);
+        assert(pthread_cond_destroy(&q->cond)==0);
     }
-    q->head=NULL;
-    q->itemcount=0;
-    
-    assert(pthread_mutex_unlock(&q->mutex)==0);
-    
-    assert(pthread_mutex_destroy(&q->mutex)==0);
-    assert(pthread_cond_destroy(&q->cond)==0);
-    
+
     return FSAERR_SUCCESS;
 }
 
@@ -192,14 +190,16 @@ s64 queue_add_block(cqueue *q, cblockinfo *blkinfo, int status)
     cqueueitem *cur;
     
     if (!q || !blkinfo)
-    {   errprintf("a parameter is NULL\n");
+    {
+        errprintf("a parameter is NULL\n");
         return FSAERR_EINVAL;
     }
     
     // create the new item in memory
     item=malloc(sizeof(cqueueitem));
     if (!item)
-    {   errprintf("malloc(%ld) failed: out of memory\n", (long)sizeof(cqueueitem));
+    {
+        errprintf("malloc(%ld) failed: out of memory\n", (long)sizeof(cqueueitem));
         return FSAERR_ENOMEM;
     }
     item->type=QITEM_TYPE_BLOCK;
@@ -211,14 +211,15 @@ s64 queue_add_block(cqueue *q, cblockinfo *blkinfo, int status)
     
     // does not make sense to add item on a queue where endofqueue is true
     if (q->endofqueue==true)
-    {   assert(pthread_mutex_unlock(&q->mutex)==0);
+    {
+        assert(pthread_mutex_unlock(&q->mutex)==0);
         return FSAERR_ENDOFFILE;
     }
     
     // wait while (queue-is-full) to let the other threads remove items first
     while (q->blkcount > q->blkmax)
     {
-        struct timespec t=get_timeout();
+        struct timespec t=queue_get_timeout();
         pthread_cond_timedwait(&q->cond, &q->mutex, &t);
     }
     
@@ -227,7 +228,8 @@ s64 queue_add_block(cqueue *q, cblockinfo *blkinfo, int status)
         q->head=item;
     }
     else // list not empty: add items at the end
-    {   for (cur=q->head; (cur!=NULL) && (cur->next!=NULL); cur=cur->next);
+    {
+        for (cur=q->head; (cur!=NULL) && (cur->next!=NULL); cur=cur->next);
         cur->next=item;
     }
     
@@ -291,7 +293,7 @@ s64 queue_add_header_internal(cqueue *q, cheadinfo *headinfo)
     // wait while (queue-is-full) to let the other threads remove items first
     while (q->blkcount > q->blkmax)
     {
-        struct timespec t=get_timeout();
+        struct timespec t=queue_get_timeout();
         pthread_cond_timedwait(&q->cond, &q->mutex, &t);
     }
     
@@ -375,6 +377,7 @@ s64 queue_get_first_block_todo(cqueue *q, cblockinfo *blkinfo)
 {
     cqueueitem *cur;
     s64 itemfound=-1;
+    int eof;
     int res;
     
     if (!q || !blkinfo)
@@ -399,18 +402,20 @@ s64 queue_get_first_block_todo(cqueue *q, cblockinfo *blkinfo)
             }
         }
         
-        struct timespec t=get_timeout();
+        struct timespec t=queue_get_timeout();
         if ((res=pthread_cond_timedwait(&q->cond, &q->mutex, &t))!=0 && res!=ETIMEDOUT)
         {   assert(pthread_mutex_unlock(&q->mutex)==0);
             return FSAERR_UNKNOWN;
         }
         
     }
-    
+
+    eof = queuelocked_get_end_of_queue(q);
+
     // if it failed at the other end of the queue
     assert(pthread_mutex_unlock(&q->mutex)==0);
-    
-    if (queuelocked_get_end_of_queue(q))
+
+    if (eof)
         return FSAERR_ENDOFFILE;
     else
         return FSAERR_UNKNOWN;
@@ -468,7 +473,7 @@ s64 queue_dequeue_first(cqueue *q, int *type, cheadinfo *headinfo, cblockinfo *b
             }
         }
         
-        struct timespec t=get_timeout();
+        struct timespec t=queue_get_timeout();
         pthread_cond_timedwait(&q->cond, &q->mutex, &t);
     }
     
@@ -495,7 +500,7 @@ s64 queue_dequeue_block(cqueue *q, cblockinfo *blkinfo)
     // while ((first-item-of-the-queue-is-not-ready) && (not-at-the-end-of-the-queue))
     while ( (((cur=q->head)==NULL) || (cur->status!=QITEM_STATUS_DONE)) && (queuelocked_get_end_of_queue(q)==false) )
     {
-        struct timespec t=get_timeout();
+        struct timespec t=queue_get_timeout();
         pthread_cond_timedwait(&q->cond, &q->mutex, &t);
     }
     
@@ -567,7 +572,7 @@ s64 queue_dequeue_header_internal(cqueue *q, cheadinfo *headinfo)
     // while ((first-item-of-the-queue-is-not-ready) && (not-at-the-end-of-the-queue))
     while ( (((cur=q->head)==NULL) || (cur->status!=QITEM_STATUS_DONE)) && (queuelocked_get_end_of_queue(q)==false) )
     {
-        struct timespec t=get_timeout();
+        struct timespec t=queue_get_timeout();
         pthread_cond_timedwait(&q->cond, &q->mutex, &t);
     }
     
@@ -643,7 +648,7 @@ s64 queue_check_next_item(cqueue *q, int *type, char *magic)
     // while ((first-item-of-the-queue-is-not-ready) && (not-at-the-end-of-the-queue))
     while ( (((cur=q->head)==NULL) || (cur->status!=QITEM_STATUS_DONE)) && (queuelocked_get_end_of_queue(q)==false) )
     {
-        struct timespec t=get_timeout();
+        struct timespec t=queue_get_timeout();
         pthread_cond_timedwait(&q->cond, &q->mutex, &t);
     }
     
@@ -698,7 +703,7 @@ s64 queue_destroy_first_item(cqueue *q)
     
     // while ((first-item-of-the-queue-is-not-ready or first-item-is-being-processed-by-comp-thread) && (not-at-the-end-of-the-queue))
     while ( (((cur=q->head)==NULL) || (cur->status==QITEM_STATUS_PROGRESS)) && (queuelocked_get_end_of_queue(q)==false) )
-    {   struct timespec t=get_timeout();
+    {   struct timespec t=queue_get_timeout();
         pthread_cond_timedwait(&q->cond, &q->mutex, &t);
     }
     

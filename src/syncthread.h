@@ -19,7 +19,8 @@
 #define __SYNCTHREAD_H__
 
 // global threads sync data
-extern struct s_queue g_queue; // queue use to share data between the three sort of threads
+extern struct s_queue *g_queue; // queue use to share data between the three sort of threads
+extern struct s_iobuffer *g_iobuffer;
 
 // global threads sync functions
 int get_abort(); // returns true if threads must exit because an error or signal received
