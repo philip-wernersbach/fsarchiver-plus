@@ -35,24 +35,19 @@
 #include "queue.h"
 #include "fec.h"
 
-struct s_fecmainhead;
-typedef struct s_fecmainhead cfecmainhead;
+/*
+ * This file implements the error-correction-code that allows to read the
+ * archive and restore all data strictly at the original data, even when
+ * there are corruptions in the archive file. This uses the FEC algorithm
+ * which is implemented in fec.c.
+ * 
+ * This code is the interface between two levels:
+ * - archio:   low-level access to the archive (open/read/write/close)
+ * - bufferio: higher-level list of fixed-size blocks of data
+ */
 
 struct s_fecblockhead;
 typedef struct s_fecblockhead cfecblockhead;
-
-struct __attribute__ ((__packed__)) s_fecmainhead
-{
-    u32 magic; // always set to FSA_MAGIC_FEC
-    u16 version; // allow modifications in later versions
-    char md5sum[16]; // checksum of the data stored in that header
-    union
-    {
-        struct {u16 fec_value_n;} __attribute__ ((__packed__)) fecv1;
-        char maxsize[4074]; // reserve a fixed size for specific data
-    }
-    data;
-};
 
 struct __attribute__ ((__packed__)) s_fecblockhead
 {
@@ -65,7 +60,7 @@ void *thread_iobuffer_writer_fct(void *args)
     char buffer_raw[FSA_FEC_VALUE_K * FSA_FEC_PACKET_SIZE];
     void *fec_src_pkt[FSA_FEC_VALUE_K];
     void *fec_handle = NULL;
-    cfecmainhead fecmainhead;
+    char curvolpath[PATH_MAX];
     cfecblockhead fecchksum;
     int fec_value_n;
     char archive[PATH_MAX];
@@ -78,30 +73,21 @@ void *thread_iobuffer_writer_fct(void *args)
     int i;
 
     // initializations
+    fec_value_n = FSA_FEC_VALUE_K + g_options.ecclevel;
     blocknum = 0;
     inc_secthreads();
     blocksize = iobuffer_get_block_size(g_iobuffer);
     assert(blocksize == sizeof(buffer_raw));
     assert(sizeof(cfecblockhead) == 16);
-    assert(sizeof(cfecmainhead) == 4096);
 
     // initializes archive
     path_force_extension(archive, sizeof(archive), g_archive, ".fsa");
-    if ((ai = archio_alloc(archive)) == NULL)
+    if ((ai = archio_alloc()) == NULL)
     {
         errprintf("archio_alloc() failed()\n");
         goto thread_iobuffer_writer_error;
     }
-    archio_generate_id(ai);
-
-    // prepares FEC main header
-    fec_value_n = FSA_FEC_VALUE_K + g_options.ecclevel;
-    memset(&fecmainhead, 0, sizeof(cfecmainhead));
-    fecmainhead.magic = cpu_to_le32(FSA_MAGIC_FEC);
-    fecmainhead.version = cpu_to_le16(1);
-    fecmainhead.data.fecv1.fec_value_n = cpu_to_le16(fec_value_n);
-    //printf("DEBUG: gcry_md_hash_buffer(GCRY_MD_MD5, fecmainhead.md5sum, &fecmainhead.data, sizeof(fecmainhead.data)=%d);\n", (int)sizeof(fecmainhead.data));
-    gcry_md_hash_buffer(GCRY_MD_MD5, fecmainhead.md5sum, &fecmainhead.data, sizeof(fecmainhead.data));
+    archio_init_write(ai, archive, g_options.ecclevel);
 
     // initializes FEC
     msgprintf(MSG_DEBUG1, "fec_new(k=%d, n=%d)\n", (int)FSA_FEC_VALUE_K, (int)fec_value_n);
@@ -113,16 +99,6 @@ void *thread_iobuffer_writer_fct(void *args)
     for (i=0; i < FSA_FEC_VALUE_K; i++)
     {
         fec_src_pkt[i] = &buffer_raw[i * FSA_FEC_PACKET_SIZE];
-    }
-
-    // write two copies of the FEC main header (because loosing it would be a disaster)
-    for (i=0; i < FSA_FEC_MAINHEAD_COPIES; i++)
-    {
-        if (archio_write_block(ai, (char*)&fecmainhead, sizeof(cfecmainhead), sizeof(cfecmainhead)) != 0)
-        {
-            msgprintf(MSG_STACK, "cannot write FEC header: archio_write_block() failed\n");
-            goto thread_iobuffer_writer_error;
-        }
     }
 
     // main loop
@@ -147,12 +123,12 @@ void *thread_iobuffer_writer_fct(void *args)
         }
 
         //printf("FDEBUG-SAVE: archio_write_block(size=%ld, bytesused=%d)\n", (long)curoffset, (int)bytesused);
-        if (archio_write_block(ai, buffer_fec, curoffset, bytesused) != 0)
+        if (archio_write_block(ai, buffer_fec, curoffset, bytesused, curvolpath, sizeof(curvolpath)) != 0)
         {
-            msgprintf(MSG_STACK, "cannot write block to archive: archio_write_block() failed\n");
+            msgprintf(MSG_STACK, "cannot write block to archive volume %s: archio_write_block() failed\n", curvolpath);
             goto thread_iobuffer_writer_error;
         }
-        
+
         blocknum++;
     }
 
@@ -188,10 +164,8 @@ void *thread_iobuffer_reader_fct(void *args)
     char buffer_dec[FSA_FEC_VALUE_K * FSA_FEC_PACKET_SIZE];
     void *fec_src_pkt[FSA_FEC_VALUE_K];
     int fec_indexes[FSA_FEC_VALUE_K];
-    cfecmainhead fecmainhead;
-    cfecmainhead fectemphead;
-    bool mainheader_found;
     void *fec_handle = NULL;
+    char curvolpath[PATH_MAX];
     int fec_value_n = 0;
     carchio *ai = NULL;
     char md5sum[16];
@@ -202,65 +176,37 @@ void *thread_iobuffer_reader_fct(void *args)
     u32 blocksize;
     u32 bytesused;
     u64 blocknum;
+    u32 ecclevel;
     int res;
     int i;
 
     // initializations
-    memset(&fecmainhead, 0, sizeof(fecmainhead));
     blocknum = 0;
     inc_secthreads();
     blocksize = iobuffer_get_block_size(g_iobuffer);
     assert(blocksize == sizeof(buffer_raw));
     assert(sizeof(cfecblockhead) == 16);
-    assert(sizeof(cfecmainhead) == 4096);
 
     // initializes archive
-    if ((ai = archio_alloc(g_archive)) == NULL)
+    if ((ai = archio_alloc()) == NULL)
     {
         errprintf("archio_alloc() failed\n");
         goto thread_iobuffer_reader_error;
     }
-
-    // read all copies of the main FEC header
-    for (i=0, mainheader_found = false; i < FSA_FEC_MAINHEAD_COPIES; i++)
+    if (archio_init_read(ai, g_archive, &ecclevel) != 0)
     {
-        // read header from archive file into a temp structure
-        if (archio_read_block(ai, (char*)&fectemphead, sizeof(cfecmainhead), &bytesused) != FSAERR_SUCCESS)
-        {
-            errprintf("iobuffer_write_fec_block() failed to read the main FEC header\n");
-            goto thread_iobuffer_reader_error;
-        }
-        // use that copy if it is valid (magic and md5 checksum are correct)
-        if (le32_to_cpu(fectemphead.magic) == FSA_MAGIC_FEC)
-        {
-            gcry_md_hash_buffer(GCRY_MD_MD5, md5sum, &fectemphead.data, sizeof(fectemphead.data));
-            if (memcmp(md5sum, fectemphead.md5sum, sizeof(md5sum)) == 0)
-            {
-                mainheader_found = true;
-                memcpy(&fecmainhead, &fectemphead, sizeof(cfecmainhead));
-            }
-        }
-    }
-
-    // alalyse data from the main FEC header
-    if (mainheader_found == false)
-    {
-        errprintf("cannot read the main FEC header from the archive: all copies have corruptions\n");
+        errprintf("archio_init_read() failed\n");
         goto thread_iobuffer_reader_error;
     }
-    if (le16_to_cpu(fecmainhead.version) != 1)
-    {
-        errprintf("unsupported version in the main FEC header\n");
-        goto thread_iobuffer_reader_error;
-    }
-    fec_value_n = le16_to_cpu(fecmainhead.data.fecv1.fec_value_n);
+
+    // initializes FEC
+    fec_value_n = FSA_FEC_VALUE_K + ecclevel;
     if ((fec_value_n < FSA_FEC_VALUE_K) || (fec_value_n > FSA_FEC_MAXVAL_N))
     {
         errprintf("invalid value for fec_value_n found in the main FEC header: %d\n", (int)fec_value_n);
         goto thread_iobuffer_reader_error;
     }
 
-    // initializes FEC
     msgprintf(MSG_DEBUG1, "fec_new(k=%d, n=%d)\n", (int)FSA_FEC_VALUE_K, (int)fec_value_n);
     if ((fec_handle = fec_new(FSA_FEC_VALUE_K, fec_value_n)) == NULL)
     {
@@ -270,7 +216,7 @@ void *thread_iobuffer_reader_fct(void *args)
 
     // read all fec encoded blocks from archive (one fec encoded block = N packets)
     encodedsize = fec_value_n * (FSA_FEC_PACKET_SIZE + sizeof(cfecblockhead));
-    while (((res = archio_read_block(ai, buffer_fec, encodedsize, &bytesused)) == FSAERR_SUCCESS) && (get_status() == STATUS_RUNNING))
+    while (((res = archio_read_block(ai, buffer_fec, encodedsize, &bytesused, curvolpath, sizeof(curvolpath))) == FSAERR_SUCCESS) && (get_status() == STATUS_RUNNING))
     {
         goodpkts = 0;
         badpkts = 0;
@@ -327,12 +273,12 @@ void *thread_iobuffer_reader_fct(void *args)
 
             if (badpkts > 0) // if errors have been found in the FEC packets
             {
-                errprintf("the error-correction-code has fixed all corruptions in archive block %lld: %d bad packets out of %d packets\n", (long long)blocknum, (int)badpkts, (int)fec_value_n);
+                errprintf("the error-correction-code has fixed all corruptions in archive volume %s at block %lld: %d bad packets out of %d packets\n", curvolpath, (long long)blocknum, (int)badpkts, (int)fec_value_n);
             }
         }
         else if (goodpkts < FSA_FEC_VALUE_K) // too many bad packets
         {
-            errprintf("cannot fix corruptions in archive block %lld: too many bad packets (%d bad packets out of %d packets)\n", (long long)blocknum, (int)badpkts, (int)fec_value_n);
+            errprintf("cannot fix corruptions in archive volume %s at block %lld: too many bad packets (%d bad packets out of %d packets)\n", curvolpath, (long long)blocknum, (int)badpkts, (int)fec_value_n);
         }
 
         blocknum++;

@@ -21,11 +21,9 @@
 
 #include <sys/statvfs.h>
 #include <sys/stat.h>
-#include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
 #include <fcntl.h>
-#include <assert.h>
 #include <errno.h>
 
 #include "fsarchiver.h"
@@ -35,11 +33,28 @@
 #include "options.h"
 #include "archio.h"
 #include "queue.h"
-#include "comp_gzip.h"
-#include "comp_bzip2.h"
 #include "error.h"
 
-carchio *archio_alloc(char *basepath)
+/*
+ * This file implement low-level management of the archive file:
+ * reading and writing the archive file, volume splitting.
+ * It should never be possible to lose the entire volume / archive just
+ * because one critical header is corrupt. For that reason two copies of
+ * the volume header are written: at the very beginning and at the very
+ * end of each volume. We can read the volume if at least one of them is
+ * good.
+ */
+
+/*
+ * TODO:
+ * - we must be able to continue on next volume if end of current volume 
+ *   is missing (truncated)
+ * - write two headers (before + after block) for each data block and 
+ *   accept the block if at least one of these two headers is correct 
+ *   (to survive to a corruption of a block header)
+ */
+
+carchio *archio_alloc()
 {
     carchio *ai;
 
@@ -49,13 +64,12 @@ carchio *archio_alloc(char *basepath)
     strlist_init(&ai->vollist);
 
     ai->newarch = false;
+    ai->lastvol = false;
     ai->curblock = 0;
     ai->archfd = -1;
     ai->archid = 0;
     ai->curvol = 0;
-
-    snprintf(ai->basepath, sizeof(ai->basepath), "%s", basepath);
-    snprintf(ai->volpath, sizeof(ai->volpath), "%s", basepath);
+    ai->ecclevel = 0;
 
     return ai;
 }
@@ -63,12 +77,6 @@ carchio *archio_alloc(char *basepath)
 int archio_destroy(carchio *ai)
 {
     strlist_destroy(&ai->vollist);
-    return 0;
-}
-
-int archio_generate_id(carchio *ai)
-{
-    ai->archid = generate_random_u32_id();
     return 0;
 }
 
@@ -82,6 +90,39 @@ int archio_incvolume(carchio *ai)
 s64 archio_get_currentpos(carchio *ai)
 {
     return (s64)lseek64(ai->archfd, 0, SEEK_CUR);
+}
+
+int archio_init_read(carchio *ai, char *basepath, u32 *ecclevel)
+{
+    *ecclevel = 0;
+
+    // set path to first volume
+    snprintf(ai->basepath, sizeof(ai->basepath), "%s", basepath);
+    snprintf(ai->volpath, sizeof(ai->volpath), "%s", basepath);
+
+    // force the volume header to be read to get the ecclevel
+    if (archio_read_block(ai, NULL, 0, NULL, NULL, 0) != FSAERR_SUCCESS)
+    {
+        errprintf("archio_read_block() failed to read the volume header\n");
+        return -1;
+    }
+
+    *ecclevel = ai->ecclevel;
+
+    return 0;
+}
+
+int archio_init_write(carchio *ai, char *basepath, u32 ecclevel)
+{
+    // set path to first volume
+    snprintf(ai->basepath, sizeof(ai->basepath), "%s", basepath);
+    snprintf(ai->volpath, sizeof(ai->volpath), "%s", basepath);
+
+    // store ecclevel and generate an archive identifier
+    ai->ecclevel = ecclevel;
+    ai->archid = generate_random_u32_id();
+
+    return 0;
 }
 
 int archio_open_write(carchio *ai)
@@ -116,13 +157,15 @@ int archio_open_write(carchio *ai)
 
     strlist_add(&ai->vollist, ai->volpath);
 
-    // write volume header
+    // write initial volume header
     memset(&head, 0, sizeof(head));
     head.magic = cpu_to_le32(FSA_MAGIC_IOH);
     head.archid = cpu_to_le32(ai->archid);
     head.type = cpu_to_le16(IOHEAD_VOLHEAD);
     head.data.volhead.volnum = cpu_to_le32(ai->curvol);
     head.data.volhead.minver = cpu_to_le64(FSA_VERSION_BUILD(0, 7, 0, 0));
+    head.data.volhead.ecclevel = cpu_to_le32(g_options.ecclevel);
+    head.data.volhead.lastvol = cpu_to_le8(false);   
     head.csum = cpu_to_le32(fletcher32((u8 *)&head.data, sizeof(head.data)));
     if (archio_write_low_level(ai, (char*)&head, sizeof(head)) != 0)
     {
@@ -135,15 +178,15 @@ int archio_open_write(carchio *ai)
 
 int archio_open_read(carchio *ai)
 {
+    ciohead volhead[2];
     struct stat64 st;
-    ciohead volhead;
-    ciohead volfoot;
     u32 volnum = 0;
     u32 archid = 0;
     u64 minver = 0;
     u64 curver = 0;
     bool validhead;
     u32 checksum;
+    int i;
 
     // 1. check that the volume exists and is a regular file
     while (regfile_exists(ai->volpath) != true)
@@ -178,7 +221,7 @@ int archio_open_read(carchio *ai)
         return -1;
     }
 
-    if (st.st_size < sizeof(volhead) + sizeof(volfoot))
+    if (st.st_size < (2 * sizeof(ciohead)))
     {
         errprintf("%s is not a valid fsarchiver volume: file is too small\n", ai->volpath);
         close(ai->archfd);
@@ -186,13 +229,13 @@ int archio_open_read(carchio *ai)
     }
 
     // 2. read volfoot (contains a duplicate of things that are in volhead)
-    if (lseek64(ai->archfd, st.st_size - sizeof(volfoot), SEEK_SET) < 0)
+    if (lseek64(ai->archfd, st.st_size - sizeof(ciohead), SEEK_SET) < 0)
     {
         sysprintf("lseek64() failed to go to the end of the volume to get the volfoot header\n");
         return -1;
     }
 
-    if (archio_read_low_level(ai, &volfoot, sizeof(volfoot)) != 0)
+    if (archio_read_low_level(ai, &volhead[0], sizeof(ciohead)) != 0)
     {
         errprintf("Failed to read volfoot volume header\n");
         return -1;
@@ -205,7 +248,7 @@ int archio_open_read(carchio *ai)
         return -1;
     }
 
-    if (archio_read_low_level(ai, &volhead, sizeof(volhead)) != 0)
+    if (archio_read_low_level(ai, &volhead[1], sizeof(ciohead)) != 0)
     {
         errprintf("Failed to read volhead volume header\n");
         return -1;
@@ -215,35 +258,25 @@ int archio_open_read(carchio *ai)
     //    this way we don't loose the entire archive if one if corrupt
     validhead = false;
 
-    checksum = fletcher32((u8 *)&volfoot.data, sizeof(volfoot.data));
-    if ((le32_to_cpu(volfoot.magic) == FSA_MAGIC_IOH)
-        && (le16_to_cpu(volfoot.type) == IOHEAD_VOLFOOT)
-        && (le32_to_cpu(volfoot.csum) == checksum))
-        {
-            volnum = le32_to_cpu(volfoot.data.volfoot.volnum);
-            minver = le64_to_cpu(volfoot.data.volfoot.minver);
-            archid = le32_to_cpu(volfoot.archid);
-            validhead = true;
-        }
-        else
-        {
-            errprintf("The volume footer is invalid\n");
-        }
-
-    checksum = fletcher32((u8 *)&volhead.data, sizeof(volhead.data));
-    if ((le32_to_cpu(volhead.magic) == FSA_MAGIC_IOH)
-        && (le16_to_cpu(volhead.type) == IOHEAD_VOLHEAD)
-        && (le32_to_cpu(volhead.csum) == checksum))
-        {
-            volnum = le32_to_cpu(volhead.data.volhead.volnum);
-            minver = le64_to_cpu(volhead.data.volhead.minver);
-            archid = le32_to_cpu(volfoot.archid);
-            validhead = true;
-        }
-        else
-        {
-            errprintf("The volume header is invalid\n");
-        }
+    for (i = 0; (validhead == false) && (i < 2); i++)
+    {
+        checksum = fletcher32((u8 *)&volhead[i].data, sizeof(volhead[i].data));
+        if ((le32_to_cpu(volhead[i].magic) == FSA_MAGIC_IOH)
+            && (le16_to_cpu(volhead[i].type) == IOHEAD_VOLHEAD)
+            && (le32_to_cpu(volhead[i].csum) == checksum))
+            {
+                volnum = le32_to_cpu(volhead[i].data.volhead.volnum);
+                minver = le64_to_cpu(volhead[i].data.volhead.minver);
+                ai->ecclevel = le32_to_cpu(volhead[i].data.volhead.ecclevel);
+                ai->lastvol = le8_to_cpu(volhead[i].data.volhead.lastvol);
+                archid = le32_to_cpu(volhead[i].archid);
+                validhead = true;
+            }
+            else
+            {
+                errprintf("The volume header (copy %d) is invalid\n", i);
+            }
+    }
 
     if (validhead == false)
     {
@@ -313,18 +346,40 @@ int archio_close_write(carchio *ai, bool lastvol)
         return -1;
     }
 
+    // prepare volume header
     memset(&head, 0, sizeof(head));
     head.magic = cpu_to_le32(FSA_MAGIC_IOH);
     head.archid = cpu_to_le32(ai->archid);
-    head.type = cpu_to_le16(IOHEAD_VOLFOOT);
-    head.data.volfoot.volnum = cpu_to_le32(ai->curvol);
-    head.data.volfoot.minver = cpu_to_le64(FSA_VERSION_BUILD(0, 7, 0, 0));
-    head.data.volfoot.lastvol = cpu_to_le8(lastvol);
+    head.type = cpu_to_le16(IOHEAD_VOLHEAD);
+    head.data.volhead.volnum = cpu_to_le32(ai->curvol);
+    head.data.volhead.minver = cpu_to_le64(FSA_VERSION_BUILD(0, 7, 0, 0));
+    head.data.volhead.ecclevel = cpu_to_le32(g_options.ecclevel);
+    head.data.volhead.lastvol = cpu_to_le8(lastvol);
     head.csum = cpu_to_le32(fletcher32((u8 *)&head.data, sizeof(head.data)));
-
     if (archio_write_low_level(ai, (char*)&head, sizeof(head)) != 0)
     {
-        errprintf("archio_write_low_level() failed to write volume footer\n");
+        errprintf("archio_write_low_level() failed to write volume header\n");
+        return -1;
+    }
+
+    // write one copy of the volume header at the end of the volume
+    if (archio_write_low_level(ai, (char*)&head, sizeof(head)) != 0)
+    {
+        errprintf("archio_write_low_level() failed to write the first copy of the volume header\n");
+        ret = -1;
+    }
+
+    // seek at the beginning of the volume
+    if (lseek64(ai->archfd, 0, SEEK_SET) < 0)
+    {
+        sysprintf("lseek64() failed to go to the beginning of the volume to update the first volume header\n");
+        return -1;
+    }
+
+    // write another copy of the volume header at the beginning of the volume
+    if (archio_write_low_level(ai, (char*)&head, sizeof(head)) != 0)
+    {
+        errprintf("archio_write_low_level() failed to write the second copy of the volume header\n");
         ret = -1;
     }
 
@@ -364,7 +419,7 @@ int archio_delete_all(carchio *ai)
     return 0;
 }
 
-int archio_write_block(carchio *ai, char *buffer, u32 bufsize, u32 bytesused)
+int archio_write_block(carchio *ai, char *buffer, u32 bufsize, u32 bytesused, char *volpathbuf, int volpathbufsize)
 {
     ciohead head;
 
@@ -375,6 +430,11 @@ int archio_write_block(carchio *ai, char *buffer, u32 bufsize, u32 bytesused)
     head.data.blkhead.blocknum = cpu_to_le64(ai->curblock++);
     head.data.blkhead.bytesused = cpu_to_le32(bytesused);
     head.csum = cpu_to_le32(fletcher32((u8 *)&head.data, sizeof(head.data)));
+
+    if ((volpathbuf != NULL) && (volpathbufsize > 0))
+    {
+        memset(volpathbuf, 0, volpathbufsize);
+    }
 
     // 1. close current volume if splitting enabled and current volume reached maxvolsize
     if (archio_split_check(ai, bufsize) == true)
@@ -408,15 +468,25 @@ int archio_write_block(carchio *ai, char *buffer, u32 bufsize, u32 bytesused)
         return -1;
     }
 
+    if ((volpathbuf != NULL) && (volpathbufsize > 0))
+    {
+        snprintf(volpathbuf, volpathbufsize, "%s", ai->volpath);
+    }
+
     return 0;
 }
 
-int archio_read_block(carchio *ai, char *buffer, u32 datsize, u32 *bytesused)
+int archio_read_block(carchio *ai, char *buffer, u32 datsize, u32 *bytesused, char *volpathbuf, int volpathbufsize)
 {
     ciohead head;
-    u8 lastvol;
     u16 type;
     bool sumok;
+    int res;
+
+    if ((volpathbuf != NULL) && (volpathbufsize > 0))
+    {
+        memset(volpathbuf, 0, volpathbufsize);
+    }
 
     do
     {
@@ -431,8 +501,14 @@ int archio_read_block(carchio *ai, char *buffer, u32 datsize, u32 *bytesused)
             }
         }
 
+        if ((buffer == NULL) || (datsize == 0))
+        {
+            return FSAERR_SUCCESS;
+        }
+
         // 2. read low-level iohead
-        if (archio_read_iohead(ai, &head, &sumok) != 0)
+        res = archio_read_iohead(ai, &head, &sumok);
+        if (res != 0)
         {
             msgprintf(MSG_STACK, "archio_read_iohead() failed\n");
             return -1;
@@ -440,17 +516,17 @@ int archio_read_block(carchio *ai, char *buffer, u32 datsize, u32 *bytesused)
         type = le16_to_cpu(head.type);
 
         // 3. handle volume splitting
-        if (type == IOHEAD_VOLFOOT)
+        if (type == IOHEAD_VOLHEAD)
         {
             archio_close_read(ai);
-            lastvol = le8_to_cpu(head.data.volfoot.lastvol);
-            if (lastvol == true)
+            if (ai->lastvol == true)
             {
                 return FSAERR_ENDOFFILE;
             }
             else
             {
                 archio_incvolume(ai);
+                continue;
             }
         }
 
@@ -462,7 +538,14 @@ int archio_read_block(carchio *ai, char *buffer, u32 datsize, u32 *bytesused)
                 msgprintf(MSG_STACK, "archio_read_low_level(%ld) failed\n", (long)datsize);
                 return -1;
             }
-            *bytesused = le32_to_cpu(head.data.blkhead.bytesused);
+            if (bytesused != NULL)
+            {
+                *bytesused = le32_to_cpu(head.data.blkhead.bytesused);
+            }
+            if ((volpathbuf != NULL) && (volpathbufsize > 0))
+            {
+                snprintf(volpathbuf, volpathbufsize, "%s", ai->volpath);
+            }
         }
     }
     while (type != IOHEAD_BLKHEAD);
@@ -479,8 +562,8 @@ int archio_read_low_level(carchio *ai, void *data, u32 bufsize)
     {
         if ((lres >= 0) && (lres < (long)bufsize))
         {
-            sysprintf("read(size=%ld) failed: unexpected end of archive volume: lres=%ld\n", (long)bufsize, lres);
-            return -1;
+            //sysprintf("read(size=%ld) failed: unexpected end of archive volume: lres=%ld\n", (long)bufsize, lres);
+            return FSAERR_ENDOFFILE;
         }
         else
         {
@@ -535,6 +618,7 @@ int archio_read_iohead(carchio *ai, ciohead *head, bool *csumok)
     s64 curpos = 0;
     bool valid = false;
     u32 checksum;
+    int res;
 
     // init
     memset(&temphead, 0, sizeof(temphead));
@@ -550,10 +634,10 @@ int archio_read_iohead(carchio *ai, ciohead *head, bool *csumok)
     // read until we found a valid io-header (skip rubbish if archive is corrupt)
     do
     {
-        if (archio_read_low_level(ai, (char*)&temphead, sizeof(temphead)) != 0)
+        if ((res = archio_read_low_level(ai, (char*)&temphead, sizeof(temphead))) != FSAERR_SUCCESS)
         {
             errprintf("failed to read io-header\n");
-            return -1;
+            return res;
         }
 
         valid = ((le32_to_cpu(temphead.magic) == FSA_MAGIC_IOH) && (le32_to_cpu(temphead.archid) == ai->archid));

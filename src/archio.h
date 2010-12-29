@@ -38,44 +38,47 @@ struct s_archio
     u32      archid; // 32bit archive id for checking (random number generated at creation)
     u32      curvol; // current volume number, starts at 0, incremented when we change the volume
     u64      curblock; // index of the last low-level block that has been written
+    u32      ecclevel; // read in the volume header, required for higher layer
     bool     newarch; // true when the archive has been created by then current process
+    bool     lastvol; // set to true when we open the last volume
     char     basepath[PATH_MAX]; // path of the first volume of an archive
     char     volpath[PATH_MAX]; // path of the current volume of an archive
     cstrlist vollist; // paths to all volumes of an archive
 };
 
-enum s_ioheadtype {IOHEAD_VOLHEAD=1, IOHEAD_VOLFOOT=2, IOHEAD_BLKHEAD=3};
+enum s_ioheadtype {IOHEAD_VOLHEAD=1, IOHEAD_BLKHEAD=2};
 
 struct __attribute__ ((__packed__)) s_iohead
 {
     u32 magic; // always set to FSA_MAGIC_IOH
     u32 archid; // archive specific 32bit ID
-    u16 type; // s_ioheadtype (volhead, volfoot, blkhead)
     u32 csum; // 32 bit checksum of the data
+    u16 type; // (vol-head, blk-head)
     union
     {
-        struct {u32 volnum; u64 minver;} __attribute__ ((__packed__)) volhead;
-        struct {u32 volnum; u64 minver; u8 lastvol;} __attribute__ ((__packed__)) volfoot;
+        struct {u32 volnum; u64 minver; u32 ecclevel; u8 lastvol;} __attribute__ ((__packed__)) volhead;
         struct {u64 blocknum; u32 bytesused;} __attribute__ ((__packed__)) blkhead;
         char maxsize[18]; // reserve a fixed size for specific data
     }
     data;
 };
 
-carchio *archio_alloc(char *basepath);
+carchio *archio_alloc();
 int archio_destroy(carchio *ai);
 int archio_delete_all(carchio *ai);
 int archio_generate_id(carchio *ai);
 int archio_open_read(carchio *ai);
 int archio_open_write(carchio *ai);
+int archio_init_read(carchio *ai, char *basepath, u32 *ecclevel);
+int archio_init_write(carchio *ai, char *basepath, u32 ecclevel);
 int archio_read_iohead(carchio *ai, ciohead *head, bool *csumok);
 int archio_close_read(carchio *ai);
 int archio_close_write(carchio *ai, bool lastvol);
 int archio_read_low_level(carchio *ai, void *data, u32 bufsize);
 int archio_write_low_level(carchio *ai, char *buffer, u32 bufsize);
 s64 archio_get_currentpos(carchio *ai);
-int archio_read_block(carchio *ai, char *buffer, u32 datsize, u32 *bytesused);
-int archio_write_block(carchio *ai, char *buffer, u32 bufsize, u32 bytes_used);
+int archio_read_block(carchio *ai, char *buffer, u32 datsize, u32 *bytesused, char *volpathbuf, int volpathbufsize);
+int archio_write_block(carchio *ai, char *buffer, u32 bufsize, u32 bytes_used, char *volpathbuf, int volpathbufsize);
 int archio_incvolume(carchio *ai);
 int archio_split_check(carchio *ai, u32 size);
 
