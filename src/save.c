@@ -50,8 +50,8 @@
 #include "fs_btrfs.h"
 #include "fs_ntfs.h"
 #include "thread_comp.h"
-#include "thread_queueiface.h"
-#include "thread_iobuffer.h"
+#include "thread_queue2iobuf.h"
+#include "thread_iobuf2archio.h"
 #include "layout_save.h"
 #include "syncthread.h"
 #include "regmulti.h"
@@ -161,7 +161,7 @@ int createar_obj_regfile_unique(csavear *save, cdico *header, char *relpath, cha
     }
     
     // write header with file attributes (only if open64() works)
-    queue_add_header(g_queue, header, FSA_MAGIC_OBJT, save->fsid);
+    queue_add_header(g_queue, header, FSA_HEADTYPE_OBJT, save->fsid);
     
     msgprintf(MSG_DEBUG1, "backup_obj_regfile_unique(file=%s, size=%lld)\n", relpath, (long long)filesize);
     for (filepos = 0; (filesize > 0) && (filepos < filesize) && (get_status() == STATUS_RUNNING); filepos += curblocksize)
@@ -243,7 +243,7 @@ int createar_obj_regfile_unique(csavear *save, cdico *header, char *relpath, cha
         }
         dico_add_data(footerdico, 0, BLOCKFOOTITEMKEY_MD5SUM, md5sum, 16);
         
-        if (queue_add_header(g_queue, footerdico, FSA_MAGIC_FILF, save->fsid)!=0)
+        if (queue_add_header(g_queue, footerdico, FSA_HEADTYPE_FILF, save->fsid)!=0)
         {   msgprintf(MSG_VERB2, "Cannot write footer for file %s\n", relpath);
             ret=-1;
             goto backup_obj_regfile_unique_error;
@@ -651,7 +651,7 @@ int createar_save_file(csavear *save, char *root, char *relpath, struct stat64 *
                 dico_destroy(dicoattr);
                 return 0; // error is not fatal, operation must continue
             }
-            if (queue_add_header(g_queue, dicoattr, FSA_MAGIC_OBJT, save->fsid)!=0)
+            if (queue_add_header(g_queue, dicoattr, FSA_HEADTYPE_OBJT, save->fsid)!=0)
             {   errprintf("queue_add_header(%s) failed\n", relpath);
                 return -1; // fatal error
             }
@@ -663,7 +663,7 @@ int createar_save_file(csavear *save, char *root, char *relpath, struct stat64 *
                 dico_destroy(dicoattr);
                 return 0; // error is not fatal, operation must continue
             }
-            if (queue_add_header(g_queue, dicoattr, FSA_MAGIC_OBJT, save->fsid)!=0)
+            if (queue_add_header(g_queue, dicoattr, FSA_HEADTYPE_OBJT, save->fsid)!=0)
             {   errprintf("queue_add_header(%s) failed\n", relpath);
                 return -1; // fatal error
             }
@@ -675,7 +675,7 @@ int createar_save_file(csavear *save, char *root, char *relpath, struct stat64 *
                 dico_destroy(dicoattr);
                 return 0; // error is not fatal, operation must continue
             }
-            if (queue_add_header(g_queue, dicoattr, FSA_MAGIC_OBJT, save->fsid)!=0)
+            if (queue_add_header(g_queue, dicoattr, FSA_HEADTYPE_OBJT, save->fsid)!=0)
             {   errprintf("queue_add_header(%s) failed\n", relpath);
                 return -1; // fatal error
             }
@@ -690,7 +690,7 @@ int createar_save_file(csavear *save, char *root, char *relpath, struct stat64 *
                 dico_destroy(dicoattr);
                 return 0; // error is not fatal, operation must continue
             }
-            if (queue_add_header(g_queue, dicoattr, FSA_MAGIC_OBJT, save->fsid)!=0)
+            if (queue_add_header(g_queue, dicoattr, FSA_HEADTYPE_OBJT, save->fsid)!=0)
             {   errprintf("queue_add_header(%s) failed\n", relpath);
                 return -1; // fatal error
             }
@@ -910,7 +910,7 @@ int createar_write_mainhead(csavear *save, int archtype, int fscount)
         assert(dico_add_data(d, MAINHEADSEC_STD, MAINHEADKEY_BUFCHECKPASSCRYPTBUF, bufcheckcrypt, FSA_CHECKPASSBUF_SIZE)==0);
     }
     
-    if (queue_add_header(g_queue, d, FSA_MAGIC_MAIN, FSA_FILESYSID_NULL)!=0)
+    if (queue_add_header(g_queue, d, FSA_HEADTYPE_MAIN, FSA_FILESYSID_NULL)!=0)
     {   errprintf("cannot write dico for main header\n");
         dico_destroy(d);
         return -1;
@@ -1083,7 +1083,7 @@ int createar_oper_savefs(csavear *save, cdevinfo *devinfo)
     {   errprintf("dicostart=dico_alloc() failed\n");
         return -1;
     }
-    queue_add_header(g_queue, dicobegin, FSA_MAGIC_FSYB, save->fsid);
+    queue_add_header(g_queue, dicobegin, FSA_HEADTYPE_FSYB, save->fsid);
     
     // init filesystem data struct
     save->fstype=devinfo->fstype;
@@ -1098,7 +1098,7 @@ int createar_oper_savefs(csavear *save, cdevinfo *devinfo)
     }
     
     // TODO: add stats about files count in that dico
-    queue_add_header(g_queue, dicoend, FSA_MAGIC_DATF, save->fsid);
+    queue_add_header(g_queue, dicoend, FSA_HEADTYPE_DATF, save->fsid);
     
     return ret;
 }
@@ -1194,15 +1194,15 @@ int save(int argc, char **argv, int archtype)
     }
 
     // create dequeue thread
-    if (pthread_create(&thread_writer, NULL, thread_dequeue_fct, NULL) != 0)
-    {   errprintf("pthread_create(thread_dequeue_fct) failed\n");
+    if (pthread_create(&thread_writer, NULL, thread_queue_to_iobuf_fct, NULL) != 0)
+    {   errprintf("pthread_create(thread_queue_to_iobuf_fct) failed\n");
         ret=-1;
         goto do_create_error;
     }
     
     // create iobuffer-writer thread
-    if (pthread_create(&thread_iobuffer, NULL, thread_iobuffer_writer_fct, NULL) != 0)
-    {   errprintf("pthread_create(thread_iobuffer_writer_fct) failed\n");
+    if (pthread_create(&thread_iobuffer, NULL, thread_iobuf_to_archio_fct, NULL) != 0)
+    {   errprintf("pthread_create(thread_iobuf_to_archio_fct) failed\n");
         ret=-1;
         goto do_create_error;
     }
@@ -1253,8 +1253,8 @@ int save(int argc, char **argv, int archtype)
             save.cost_global+=cost_evalfs;
             
             // write filesystem header
-            if (queue_add_header(g_queue, dicofsinfo[i], FSA_MAGIC_FSIN, FSA_FILESYSID_NULL)!=0)
-            {   errprintf("queue_add_header(FSA_MAGIC_FSIN, %s) failed\n", devinfo[i].devpath);
+            if (queue_add_header(g_queue, dicofsinfo[i], FSA_HEADTYPE_FSIN, FSA_FILESYSID_NULL)!=0)
+            {   errprintf("queue_add_header(FSA_HTYPE_FSIN, %s) failed\n", devinfo[i].devpath);
                 goto do_create_error;
             }
             dicofsinfo[i]=NULL;
@@ -1286,8 +1286,8 @@ int save(int argc, char **argv, int archtype)
             goto do_create_error;
         }
         
-        if (queue_add_header(g_queue, dirsinfo, FSA_MAGIC_DIRS, FSA_FILESYSID_NULL)!=0)
-        {   errprintf("queue_add_header(FSA_MAGIC_DIRS) failed\n");
+        if (queue_add_header(g_queue, dirsinfo, FSA_HEADTYPE_DIRS, FSA_FILESYSID_NULL)!=0)
+        {   errprintf("queue_add_header(FSA_HTYPE_DIRS) failed\n");
             goto do_create_error;
         }
         dirsinfo=NULL;
@@ -1340,7 +1340,7 @@ int save(int argc, char **argv, int archtype)
             }
             
             // TODO: add stats about files count in that dico
-            queue_add_header(g_queue, dicoend, FSA_MAGIC_DATF, FSA_FILESYSID_NULL);
+            queue_add_header(g_queue, dicoend, FSA_HEADTYPE_DATF, FSA_FILESYSID_NULL);
             break;
             
         default: // invalid option

@@ -27,6 +27,7 @@
 #include "syncthread.h"
 #include "iobuffer.h"
 #include "queue.h"
+#include "error.h"
 
 // queue use to share data between the three sort of threads
 cqueue *g_queue = NULL;
@@ -38,12 +39,25 @@ u8 g_fsbitmap[FSA_MAX_FSPERARCH];
 
 // g_stopfillqueue is set to true when the threads that reads the queue wants to stop
 // either because there is an error or because it does not need the next data
-//atomic_t g_stopfillqueue={ (false) };
-//atomic_t g_aborted={ (false) };
 atomic_t g_status = { (STATUS_RUNNING) };
 
 // how many secondary threads are running (compression/decompression and archio threads)
 atomic_t g_secthreads={ (0) };
+
+char *get_status_text(int status)
+{
+    switch (status)
+    {
+        case STATUS_RUNNING:
+            return "STATUS_RUNNING";
+        case STATUS_ABORTED:
+            return "STATUS_ABORTED";
+        case STATUS_FAILED:
+            return "STATUS_FAILED";
+        default:
+            return "STATUS_??????";
+    };
+};
 
 void inc_secthreads()
 {
@@ -60,9 +74,10 @@ int get_secthreads()
     return atomic_read(&g_secthreads);
 }
 
-void set_status(int status)
+void set_status(int status, char *context)
 {
     atomic_set(&g_status, status);
+    msgprintf(MSG_DEBUG1, "set_status(status=[%d]=[%s], context=[%s])\n", status, get_status_text(status), context);
 }
 
 int get_status()

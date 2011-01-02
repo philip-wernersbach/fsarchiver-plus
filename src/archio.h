@@ -46,18 +46,18 @@ struct s_archio
     cstrlist vollist; // paths to all volumes of an archive
 };
 
-enum s_ioheadtype {IOHEAD_VOLHEAD=1, IOHEAD_BLKHEAD=2};
+enum s_ioheadtype {IOHEAD_VOLHEAD=1, IOHEAD_VOLFOOT=2, IOHEAD_BLKHEAD=3, IOHEAD_BLKFOOT=4};
 
 struct __attribute__ ((__packed__)) s_iohead
 {
-    u32 magic; // always set to FSA_MAGIC_IOH
-    u32 archid; // archive specific 32bit ID
+    u32 magic; // always set to FSA_MAGIC_IOPHYSHEADER
+    u32 archid; // archive specific identifier
     u32 csum; // 32 bit checksum of the data
     u16 type; // (vol-head, blk-head)
     union
     {
         struct {u32 volnum; u64 minver; u32 ecclevel; u8 lastvol;} __attribute__ ((__packed__)) volhead;
-        struct {u64 blocknum; u32 bytesused;} __attribute__ ((__packed__)) blkhead;
+        struct {u64 blknum; u32 blkid; u32 bytesused;} __attribute__ ((__packed__)) blkhead;
         char maxsize[18]; // reserve a fixed size for specific data
     }
     data;
@@ -71,7 +71,6 @@ int archio_open_read(carchio *ai);
 int archio_open_write(carchio *ai);
 int archio_init_read(carchio *ai, char *basepath, u32 *ecclevel);
 int archio_init_write(carchio *ai, char *basepath, u32 ecclevel);
-int archio_read_iohead(carchio *ai, ciohead *head, bool *csumok);
 int archio_close_read(carchio *ai);
 int archio_close_write(carchio *ai, bool lastvol);
 int archio_read_low_level(carchio *ai, void *data, u32 bufsize);

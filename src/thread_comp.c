@@ -281,7 +281,7 @@ int compression_function(int oper)
     return 0;
 
 thread_comp_fct_error:
-    set_status(STATUS_FAILED);
+    set_status(STATUS_FAILED, "thread_comp.c(thread_comp_fct_error)");
     msgprintf(MSG_DEBUG1, "THREAD-COMP: exit error\n");
     return 0;
 }

@@ -31,6 +31,20 @@
 #include "error.h"
 #include "dico.h"
 
+struct s_logicheader;
+typedef struct s_logicheader clogicheader;
+
+struct __attribute__ ((__packed__)) s_logicheader
+{
+    u32 magic1; // always set to FSA_MAGIC_LOGICHEADER1
+    u32 headtype; // type of header (one number per usage)
+    u16 fsindex; // index of the current filesystem
+    u16 dicocnt; // how many items in the dico
+    u32 dicolen; // length of all items of the dico
+    u32 dicosum; // 32 bit checksum of the dico
+    u32 magic2; // always set to FSA_MAGIC_LOGICHEADER2
+};
+
 struct timespec iobuffer_get_timeout()
 {
     struct timespec t;
@@ -337,11 +351,11 @@ int iobuffer_write_block(ciobuffer *iob, struct s_blockinfo *blkinfo, u16 fsid)
     dico_add_u16(blkdico, 0, BLOCKHEADITEMKEY_ENCRYPTALGO, blkinfo->blkcryptalgo);
 
     // write block header
-    res=iobuffer_write_header(iob, blkdico, FSA_MAGIC_BLKH, fsid);
+    res = iobuffer_write_logichead(iob, blkdico, FSA_HEADTYPE_BLKH, fsid);
     dico_destroy(blkdico);
     if (res!=0)
     {
-        msgprintf(MSG_STACK, "cannot write FSA_MAGIC_BLKH block-header\n");
+        msgprintf(MSG_STACK, "cannot write FSA_HTYPE_BLKH block-header\n");
         return -1;
     }
 
@@ -355,133 +369,92 @@ int iobuffer_write_block(ciobuffer *iob, struct s_blockinfo *blkinfo, u16 fsid)
     return 0;
 }
 
-int iobuffer_write_header(ciobuffer *iob, cdico *d, char *magic, u16 fsid)
-{
-    u16 temp16;
-
-    // A. write dico magic string
-    if (iobuffer_write_raw_data(iob, magic, FSA_SIZEOF_MAGIC)!=0)
-    {
-        errprintf("writebuf_add_data() failed to write FSA_SIZEOF_MAGIC\n");
-        return -2;
-    }
-
-    // B. write filesystem id
-    temp16=cpu_to_le16(fsid);
-    if (iobuffer_write_raw_data(iob, (char*)&temp16, sizeof(temp16))!=0)
-    {
-        errprintf("writebuf_add_data() failed to write fsid\n");
-        return -3;
-    }
-
-    // C. write the dico of the header
-    if (iobuffer_write_dico(iob, d, magic) != 0)
-    {
-        errprintf("archio_write_dico() failed to write the header dico\n");
-        return -4;
-    }
-    
-    return 0;
-}
-
-int iobuffer_write_dico(ciobuffer *iob, cdico *d, char *magic)
+int iobuffer_write_logichead(ciobuffer *iob, cdico *d, u32 headertype, u16 fsindex)
 {
     struct s_dicoitem *item;
-    int itemnum;
-    u32 headerlen;
-    u32 checksum;
+    clogicheader header;
+    u32 dicolen = 0;
+    u16 dicocnt = 0;
+    u16 itemnum = 0;
+    u32 dicosum;
     u8 *buffer;
     u8 *bufpos;
     u16 temp16;
-    u32 temp32;
-    u16 count;
 
-    // 0. debugging
-    msgprintf(MSG_DEBUG2, "iobuffer_write_dico(iob=%p, dico=%p, magic=[%c%c%c%c])\n", iob, d, magic[0], magic[1], magic[2], magic[3]);
-    for (item=d->head; item!=NULL; item=item->next)
-        if ((item->section==DICO_OBJ_SECTION_STDATTR) && (item->key==DISKITEMKEY_PATH) && (memcmp(magic, "ObJt", 4)==0))
-            msgprintf(MSG_DEBUG2, "filepath=[%s]\n", item->data);
-
-    // 1. how many valid items there are
-    count=dico_count_all_sections(d);
-    msgprintf(MSG_DEBUG2, "dico_count_all_sections(dico=%p)=%d\n", d, (int)count);
-
-    // 2. calculate len of header
-    headerlen=sizeof(u16); // count
-    for (item=d->head; item!=NULL; item=item->next)
+    // calculate length of dico
+    for (dicocnt = dicolen = 0, item = d->head; item != NULL; item = item->next, dicocnt++)
     {
-        headerlen+=sizeof(u8); // type
-        headerlen+=sizeof(u8); // section
-        headerlen+=sizeof(u16); // key
-        headerlen+=sizeof(u16); // data size
-        headerlen+=item->size; // data
+        dicolen += sizeof(u8);  // data type
+        dicolen += sizeof(u8);  // section num
+        dicolen += sizeof(u16); // key num
+        dicolen += sizeof(u16); // data size
+        dicolen += item->size;  // data
     }
-    msgprintf(MSG_DEBUG2, "calculated headerlen for that dico: headerlen=%d\n", (int)headerlen);
+    msgprintf(MSG_DEBUG2, "dico info: dicolen=%ld and dicocnt=%ld\n", (long)dicolen, (long)dicocnt);
 
-    // 3. allocate memory for header
-    bufpos=buffer=malloc(headerlen);
-    if (!buffer)
-    {   errprintf("cannot allocate memory for buffer");
-        return -1;
+    // allocate memory for dico
+    if ((bufpos = buffer = malloc(dicolen)) == NULL)
+    {
+        errprintf("cannot allocate memory for dico");
+        return FSAERR_ENOMEM;
     }
 
-    // 4. write items count in buffer
-    temp16=cpu_to_le16(count);
-    msgprintf(MSG_DEBUG2, "mempcpy items count to buffer: u16 count=%d\n", (int)count);
-    bufpos=mempcpy(bufpos, &temp16, sizeof(temp16));
-
-    // 5. write all items in buffer
-    for (item=d->head, itemnum=0; item!=NULL; item=item->next, itemnum++)
+    // dump all dico items in buffer
+    for (item = d->head, itemnum = 0; (item != NULL) && (itemnum < dicocnt); item = item->next, itemnum++)
     {
         msgprintf(MSG_DEBUG2, "itemnum=%d (type=%d, section=%d, key=%d, size=%d)\n", 
-            (int)itemnum++, (int)item->type, (int)item->section, (int)item->key, (int)item->size);
-        
+            (int)itemnum, (int)item->type, (int)item->section, (int)item->key, (int)item->size);
+
         // a. write data type buffer
-        bufpos=mempcpy(bufpos, &item->type, sizeof(item->type));
-        
+        bufpos = mempcpy(bufpos, &item->type, sizeof(item->type));
+
         // b. write section to buffer
-        bufpos=mempcpy(bufpos, &item->section, sizeof(item->section));
-        
+        bufpos = mempcpy(bufpos, &item->section, sizeof(item->section));
+
         // c. write key to buffer
-        temp16=cpu_to_le16(item->key);
-        bufpos=mempcpy(bufpos, &temp16, sizeof(temp16));
-        
+        temp16 = cpu_to_le16(item->key);
+        bufpos = mempcpy(bufpos, &temp16, sizeof(temp16));
+
         // d. write sizeof(data) to buffer
-        temp16=cpu_to_le16(item->size);
-        bufpos=mempcpy(bufpos, &temp16, sizeof(temp16));
-        
+        temp16 = cpu_to_le16(item->size);
+        bufpos = mempcpy(bufpos, &temp16, sizeof(temp16));
+
         // e. write data to buffer
-        if (item->size>0)
-            bufpos=mempcpy(bufpos, item->data, item->size);
+        if (item->size > 0)
+            bufpos = mempcpy(bufpos, item->data, item->size);
     }
     msgprintf(MSG_DEBUG2, "all %d items mempcopied to buffer\n", (int)itemnum);
-    
-    // 6. write header-len, header-data, header-checksum
-    temp32=cpu_to_le32(headerlen);
-    if (iobuffer_write_raw_data(iob, (char*)&temp32, sizeof(temp32))!=0)
+
+    // prepare header
+    dicosum = fletcher32(buffer, dicolen);
+    memset(&header, 0, sizeof(header));
+    header.magic1 = cpu_to_le32(FSA_MAGIC_LOGICHEADER1);
+    header.headtype = cpu_to_le32(headertype);
+    header.fsindex = cpu_to_le16(fsindex);
+    header.dicocnt = cpu_to_le16(dicocnt);
+    header.dicolen = cpu_to_le32(dicolen);
+    header.dicosum = cpu_to_le32(dicosum);
+    header.magic2 = cpu_to_le32(FSA_MAGIC_LOGICHEADER2);
+
+    // write header
+    if (iobuffer_write_raw_data(iob, (char *)&header, sizeof(header)) != 0)
     {
+        errprintf("iobuffer_write_raw_data() failed to write logical-header head\n");
         free(buffer);
         return -1;
     }
 
-    if (iobuffer_write_raw_data(iob, (char*)buffer, headerlen)!=0)
+    // write dico
+    if (iobuffer_write_raw_data(iob, (char *)buffer, dicolen) != 0)
     {
-        free(buffer);
-        return -1;
-    }
-
-    checksum=fletcher32(buffer, headerlen);
-    temp32=cpu_to_le32(checksum);
-    if (iobuffer_write_raw_data(iob, (char*)&temp32, sizeof(temp32))!=0)
-    {
+        errprintf("iobuffer_write_raw_data() failed to write logical-header dico\n");
         free(buffer);
         return -1;
     }
 
     free(buffer);
-    msgprintf(MSG_DEBUG2, "end of archio_write_dico(iob=%p, dico=%p, magic=[%c%c%c%c])\n", iob, d, magic[0], magic[1], magic[2], magic[3]);
 
-    return 0;
+    return FSAERR_SUCCESS;
 }
 
 // read a buffer of raw bytes to from the list of blocks
@@ -526,7 +499,7 @@ int iobuffer_read_raw_data(ciobuffer *iob, char *buffer, u32 datasize)
         }
         else // wait if the first block is not ready
         {
-            struct timespec t=iobuffer_get_timeout();
+            struct timespec t = iobuffer_get_timeout();
             if ((res = pthread_cond_timedwait(&iob->cond, &iob->mutex, &t))!=0 && res != ETIMEDOUT)
             {
                 assert(pthread_mutex_unlock(&iob->mutex)==0);
@@ -555,7 +528,7 @@ int iobuffer_read_block(ciobuffer *iob, struct s_dico *in_blkdico, int *out_sumo
     memset(out_blkinfo, 0, sizeof(struct s_blockinfo));
     *out_sumok=-1;
 
-    if (dico_get_u64(in_blkdico, 0, BLOCKHEADITEMKEY_BLOCKOFFSET, &blockoffset)!=0)
+    if (dico_get_u64(in_blkdico, 0, BLOCKHEADITEMKEY_BLOCKOFFSET, &blockoffset) != 0)
     {
         msgprintf(3, "cannot get blockoffset from block-header\n");
         return -1;
@@ -567,31 +540,31 @@ int iobuffer_read_block(ciobuffer *iob, struct s_dico *in_blkdico, int *out_sumo
         return -1;
     }
 
-    if (dico_get_u16(in_blkdico, 0, BLOCKHEADITEMKEY_COMPRESSALGO, &compalgo)!=0)
+    if (dico_get_u16(in_blkdico, 0, BLOCKHEADITEMKEY_COMPRESSALGO, &compalgo) != 0)
     {
         msgprintf(3, "cannot get BLOCKHEADITEMKEY_COMPRESSALGO from block-header\n");
         return -1;
     }
 
-    if (dico_get_u16(in_blkdico, 0, BLOCKHEADITEMKEY_ENCRYPTALGO, &cryptalgo)!=0)
+    if (dico_get_u16(in_blkdico, 0, BLOCKHEADITEMKEY_ENCRYPTALGO, &cryptalgo) != 0)
     {
         msgprintf(3, "cannot get BLOCKHEADITEMKEY_ENCRYPTALGO from block-header\n");
         return -1;
     }
 
-    if (dico_get_u32(in_blkdico, 0, BLOCKHEADITEMKEY_ARSIZE, &finalsize)!=0)
+    if (dico_get_u32(in_blkdico, 0, BLOCKHEADITEMKEY_ARSIZE, &finalsize) != 0)
     {
         msgprintf(3, "cannot get BLOCKHEADITEMKEY_ARSIZE from block-header\n");
         return -1;
     }
 
-    if (dico_get_u32(in_blkdico, 0, BLOCKHEADITEMKEY_COMPSIZE, &compsize)!=0)
+    if (dico_get_u32(in_blkdico, 0, BLOCKHEADITEMKEY_COMPSIZE, &compsize) != 0)
     {
         msgprintf(3, "cannot get BLOCKHEADITEMKEY_COMPSIZE from block-header\n");
         return -1;
     }
 
-    if (dico_get_u32(in_blkdico, 0, BLOCKHEADITEMKEY_ARCSUM, &arblockcsumorig)!=0)
+    if (dico_get_u32(in_blkdico, 0, BLOCKHEADITEMKEY_ARCSUM, &arblockcsumorig) != 0)
     {
         msgprintf(3, "cannot get BLOCKHEADITEMKEY_ARCSUM from block-header\n");
         return -1;
@@ -639,117 +612,100 @@ int iobuffer_read_block(ciobuffer *iob, struct s_dico *in_blkdico, int *out_sumo
     return 0;
 }
 
-int iobuffer_read_header(ciobuffer *iob, char *magic, struct s_dico **d, u16 *fsid)
+int iobuffer_read_logichead(ciobuffer *iob, u32 *headertype, struct s_dico **d, u16 *fsindex)
 {
+    char readbuf[sizeof(clogicheader)];
+    clogicheader *header = NULL;
+    u64 bytesignored = 0;
+    u8 *buffer = NULL;
+    bool valid;
+    u32 dicolen;
+    u16 dicocnt;
+    u8 *bufpos;
     u16 temp16;
+    u8 section;
+    u16 size;
+    u8 type;
+    u16 key;
     int res;
+    int i;
 
     // init
-    memset(magic, 0, FSA_SIZEOF_MAGIC);
-    *fsid = FSA_FILESYSID_NULL;
+    header = (clogicheader *)readbuf;
+    *headertype = 0;
+    *fsindex = FSA_FILESYSID_NULL;
     *d = NULL;
 
     if ((*d = dico_alloc()) == NULL)
     {
         errprintf("dico_alloc() failed\n");
-        return OLDERR_FATAL;
-    }
-
-    // A. read magic
-    if ((res = iobuffer_read_raw_data(iob, magic, FSA_SIZEOF_MAGIC)) != FSAERR_SUCCESS)
-    {
-        msgprintf(MSG_STACK, "cannot read header magic: res=%d\n", res);
-        return OLDERR_FATAL;
-    }
-    if (is_magic_valid(magic) != true)
-    {
-        errprintf("unexpected magic number in the header: [%c%c%c%c]. this is "
-            "not a valid fsarchiver file, or it has been created with a "
-            "different version.\n", magic[0], magic[1], magic[2], magic[3]);
-        return OLDERR_FATAL;
-    }
-
-    // B. read the filesystem id
-    if ((res = iobuffer_read_raw_data(iob, (char *)&temp16, sizeof(temp16))) != FSAERR_SUCCESS)
-    {
-        msgprintf(MSG_STACK, "cannot read filesystem-id in header: res=%d\n", res);
-        return OLDERR_FATAL;
-    }
-    *fsid=le16_to_cpu(temp16);
-
-    // C. read the dico of the header
-    if (iobuffer_read_dico(iob, *d) != FSAERR_SUCCESS)
-    {
-        msgprintf(MSG_STACK, "imgdisk_read_dico() failed\n");
-        return res;
-    }
-
-    return FSAERR_SUCCESS;
-}
-
-int iobuffer_read_dico(ciobuffer *iob, struct s_dico *d)
-{
-    u16 size;
-    u32 headerlen;
-    u32 origsum;
-    u32 newsum;
-    u8 *buffer;
-    u8 *bufpos;
-    u16 temp16;
-    u32 temp32;
-    u8 section;
-    u16 count;
-    u8 type;
-    u16 key;
-    int i;
-
-    // header-len, header-data, header-checksum
-    if (iobuffer_read_raw_data(iob, (char *)&temp32, sizeof(temp32)) != 0)
-    {
-        errprintf("imgdisk_read_data() failed\n");
-        return OLDERR_FATAL;
-    }
-    headerlen = le32_to_cpu(temp32);
-
-    bufpos = buffer = malloc(headerlen);
-    if (!buffer)
-    {
-        errprintf("cannot allocate memory for header\n");
         return FSAERR_ENOMEM;
     }
 
-    if (iobuffer_read_raw_data(iob, (char *)buffer, headerlen) != 0)
+    // retry until we read a valid logical-header (skip all corruptions)
+    do
     {
-        errprintf("cannot read header data\n");
-        free(buffer);
-        return OLDERR_FATAL;
+        // attempt to read logical-header header entirely from archive
+        if ((res = iobuffer_read_raw_data(iob, readbuf, sizeof(readbuf))) != FSAERR_SUCCESS)
+        {
+            msgprintf(MSG_STACK, "iobuffer_read_raw_data() failed to read logical-header header: res=%d\n", res);
+            return FSAERR_READ;
+        }
+
+        // move to next byte in the archive until we find a valid header
+        // (valid magic1 and magic2). two magic numbers are required so that we know
+        // if some rubbish has been added in the middle of the header. In that case we
+        // do not want to consider that  rubbish and use it as if it was valid header
+        while ((le32_to_cpu(header->magic1) != FSA_MAGIC_LOGICHEADER1) || (le32_to_cpu(header->magic2) != FSA_MAGIC_LOGICHEADER2))
+        {
+            memcpy(readbuf, readbuf+1, sizeof(readbuf)-1); // ignore first byte we have read previously
+            if ((res = iobuffer_read_raw_data(iob, &readbuf[sizeof(readbuf)-1], 1)) != FSAERR_SUCCESS) // read next byte
+            {
+                msgprintf(MSG_STACK, "iobuffer_read_raw_data() failed to read logical-header header: res=%d\n", res);
+                return FSAERR_READ;
+            }
+            bytesignored++;
+        }
+        if (bytesignored > 0)
+        {
+            errprintf("ignored %ld bytes to find the next logical-header\n", (long)bytesignored);
+        }
+
+        // read important values from the header
+        dicolen = le32_to_cpu(header->dicolen);
+        dicocnt = le16_to_cpu(header->dicocnt);
+
+        // allocate memory for the dico
+        if ((bufpos = buffer = malloc(dicolen)) == NULL)
+        {
+            errprintf("cannot allocate memory for header\n");
+            return FSAERR_ENOMEM;
+        }
+
+        // read dico items in buffer
+        if ((res = iobuffer_read_raw_data(iob, (char *)buffer, dicolen)) != 0)
+        {
+            errprintf("cannot read header data: iobuffer_read_raw_data()=%d\n", res);
+            free(buffer);
+            return FSAERR_READ;
+        }
+
+        // check the dico integrity
+        valid = fletcher32(buffer, dicolen) == le32_to_cpu(header->dicosum);
+        if (valid == false)
+        {
+            errprintf("current logical-header is invalid: ignoring it\n");
+            free(buffer);
+        }
     }
+    while (valid == false);
 
-    if (iobuffer_read_raw_data(iob, (char *)&temp32, sizeof(temp32)) != 0)
-    {
-        errprintf("cannot read header checksum\n");
-        free(buffer);
-        return OLDERR_FATAL;
-    }
-    origsum = le32_to_cpu(temp32);
-
-    // check header-data integrity using checksum    
-    newsum = fletcher32(buffer, headerlen);
-
-    if (newsum != origsum)
-    {
-        errprintf("bad checksum for header\n");
-        free(buffer);
-        return OLDERR_MINOR; // header corrupt --> skip file
-    }
-
-    // read count from buffer
-    memcpy(&temp16, bufpos, sizeof(temp16));
-    bufpos += sizeof(temp16);
-    count = le16_to_cpu(temp16);
+    // write header info
+    *headertype = le32_to_cpu(header->headtype);
+    *fsindex = le16_to_cpu(header->fsindex);
 
     // read items
-    for (i=0; i < count; i++)
+    for (i = 0; i < dicocnt; i++)
     {
         // a. read type from buffer
         memcpy(&type, bufpos, sizeof(type));
@@ -770,11 +726,15 @@ int iobuffer_read_dico(ciobuffer *iob, struct s_dico *d)
         size = le16_to_cpu(temp16);
 
         // e. add item to dico
-        if (dico_add_generic(d, section, key, bufpos, size, type) != 0)
-            return OLDERR_FATAL;
+        if ((res = dico_add_generic(*d, section, key, bufpos, size, type)) != 0)
+        {
+            free(buffer);
+            return res;
+        }
         bufpos += size;
     }
 
     free(buffer);
+
     return FSAERR_SUCCESS;
 }

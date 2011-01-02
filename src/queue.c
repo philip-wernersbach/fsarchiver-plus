@@ -243,21 +243,21 @@ s64 queue_add_block(cqueue *q, cblockinfo *blkinfo, int status)
     return FSAERR_SUCCESS;
 }
 
-s64 queue_add_header(cqueue *q, cdico *d, char *magic, u16 fsid)
+s64 queue_add_header(cqueue *q, cdico *d, u32 headertype, u16 fsid)
 {
     cheadinfo headinfo;
-    
-    if (!q || !d || !magic)
+
+    if (!q || !d)
     {   errprintf("parameter is null\n");
         return FSAERR_EINVAL;
     }
-    
+
     memset(&headinfo, 0, sizeof(headinfo));
-    memcpy(headinfo.magic, magic, FSA_SIZEOF_MAGIC);
+    headinfo.headertype = headertype;
     headinfo.fsid=fsid;
     headinfo.dico=d;
-    
-    return     queue_add_header_internal(q, &headinfo);
+
+    return queue_add_header_internal(q, &headinfo);
 }
 
 s64 queue_add_header_internal(cqueue *q, cheadinfo *headinfo)
@@ -422,65 +422,64 @@ s64 queue_get_first_block_todo(cqueue *q, cblockinfo *blkinfo)
 }
 
 // the writer thread requires the first block of the queue if it ready to go
-//s64 queue_dequeue_first(cqueue *q, int *type, char *magic, cdico **dico, cblockinfo *blkinfo)
 s64 queue_dequeue_first(cqueue *q, int *type, cheadinfo *headinfo, cblockinfo *blkinfo)
 {
     cqueueitem *cur=NULL;
     s64 itemfound=-1;
     int ret;
-    
+
     if (!q || !headinfo || !blkinfo)
-    {   errprintf("a parameter is null\n");
+    {
+        errprintf("a parameter is null\n");
         return FSAERR_EINVAL;
     }
-    
+
     assert(pthread_mutex_lock(&q->mutex)==0);
-    
-    while (queuelocked_get_end_of_queue(q)==false)
+
+    while (queuelocked_get_end_of_queue(q) == false)
     {
-        if (((cur=q->head)!=NULL) && (cur->status==QITEM_STATUS_DONE))
+        if (((cur=q->head) != NULL) && (cur->status == QITEM_STATUS_DONE))
         {
-            if (cur->type==QITEM_TYPE_BLOCK) // item to dequeue is a block
+            switch (cur->type)
             {
-                q->blkcount--;
-                *type=cur->type;
-                itemfound=cur->itemnum;
-                *blkinfo=cur->blkinfo;
-                q->head=cur->next;
-                free(cur);
-                q->itemcount--;
-                assert(pthread_mutex_unlock(&q->mutex)==0);
-                pthread_cond_broadcast(&q->cond);
-                return itemfound; // ">0" means item found
-            }
-            else if (cur->type==QITEM_TYPE_HEADER) // item to dequeue is a dico
-            {
-                *headinfo=cur->headinfo;
-                *type=cur->type;
-                itemfound=cur->itemnum;
-                q->head=cur->next;
-                free(cur);
-                q->itemcount--;
-                assert(pthread_mutex_unlock(&q->mutex)==0);
-                pthread_cond_broadcast(&q->cond);
-                return itemfound; // ">0" means item found
-            }
-            else
-            {
-                errprintf("invalid item type in queue\n");
-                assert(pthread_mutex_unlock(&q->mutex)==0);
-                return FSAERR_EINVAL;
+                case QITEM_TYPE_BLOCK: // item to dequeue is a block
+                    *type = cur->type;
+                    q->blkcount--;
+                    itemfound = cur->itemnum;
+                    *blkinfo = cur->blkinfo;
+                    q->head = cur->next;
+                    free(cur);
+                    q->itemcount--;
+                    assert(pthread_mutex_unlock(&q->mutex)==0);
+                    pthread_cond_broadcast(&q->cond);
+                    return itemfound; // ">0" means item found
+
+                case QITEM_TYPE_HEADER: // item to dequeue is a dico
+                    *type = cur->type;
+                    *headinfo = cur->headinfo;
+                    itemfound = cur->itemnum;
+                    q->head = cur->next;
+                    free(cur);
+                    q->itemcount--;
+                    assert(pthread_mutex_unlock(&q->mutex)==0);
+                    pthread_cond_broadcast(&q->cond);
+                    return itemfound; // ">0" means item found
+
+                default:
+                    errprintf("invalid item type in queue\n");
+                    assert(pthread_mutex_unlock(&q->mutex)==0);
+                    return FSAERR_EINVAL;
             }
         }
-        
+
         struct timespec t=queue_get_timeout();
         pthread_cond_timedwait(&q->cond, &q->mutex, &t);
     }
-    
+
     // if it failed at the other end of the queue
-    ret=(queuelocked_get_end_of_queue(q)==true)?FSAERR_ENDOFFILE:FSAERR_UNKNOWN;
+    ret = (queuelocked_get_end_of_queue(q) == true) ? FSAERR_ENDOFFILE : FSAERR_UNKNOWN;
     assert(pthread_mutex_unlock(&q->mutex)==0);
-    
+
     return ret;
 }
 
@@ -491,7 +490,8 @@ s64 queue_dequeue_block(cqueue *q, cblockinfo *blkinfo)
     s64 itemnum;
     
     if (!q || !blkinfo)
-    {   errprintf("a parameter is null\n");
+    {
+        errprintf("a parameter is null\n");
         return FSAERR_EINVAL;
     }
     
@@ -506,7 +506,8 @@ s64 queue_dequeue_block(cqueue *q, cblockinfo *blkinfo)
     
     // if it failed at the other end of the queue
     if (queuelocked_get_end_of_queue(q))
-    {   assert(pthread_mutex_unlock(&q->mutex)==0);
+    {
+        assert(pthread_mutex_unlock(&q->mutex)==0);
         return FSAERR_ENDOFFILE;
     }
     
@@ -535,23 +536,25 @@ s64 queue_dequeue_block(cqueue *q, cblockinfo *blkinfo)
     }
 }
 
-s64 queue_dequeue_header(cqueue *q, cdico **d, char *magicbuf, u16 *fsid)
+s64 queue_dequeue_header(cqueue *q, cdico **d, u32 *headertype, u16 *fsid)
 {
     cheadinfo headinfo;
     s64 lres;
-    
-    if (!q || !d || !magicbuf)
-    {   errprintf("a parameter is null\n");
+
+    if (!q || !d || !headertype)
+    {
+        errprintf("a parameter is null\n");
         return FSAERR_EINVAL;
     }
-    
-    if ((lres=queue_dequeue_header_internal(q, &headinfo))<=0)
-    {   msgprintf(MSG_STACK, "queue_dequeue_header_internal() failed\n");
+
+    if ((lres = queue_dequeue_header_internal(q, &headinfo))<=0)
+    {
+        msgprintf(MSG_STACK, "queue_dequeue_header_internal() failed\n");
         return lres;
     }
-    
-    memcpy(magicbuf, headinfo.magic, FSA_SIZEOF_MAGIC);
-    *d=headinfo.dico;
+
+    *headertype = headinfo.headertype;
+    *d = headinfo.dico;
     if (fsid!=NULL) *fsid=headinfo.fsid;
     
     return lres;
@@ -563,7 +566,8 @@ s64 queue_dequeue_header_internal(cqueue *q, cheadinfo *headinfo)
     s64 itemnum;
     
     if (!q || !headinfo)
-    {   errprintf("a parameter is null\n");
+    {
+        errprintf("a parameter is null\n");
         return FSAERR_EINVAL;
     }
     
@@ -578,7 +582,8 @@ s64 queue_dequeue_header_internal(cqueue *q, cheadinfo *headinfo)
     
     // if it failed at the other end of the queue
     if (queuelocked_get_end_of_queue(q))
-    {   assert(pthread_mutex_unlock(&q->mutex)==0);
+    {
+        assert(pthread_mutex_unlock(&q->mutex)==0);
         return FSAERR_ENDOFFILE;
     }
     
@@ -597,11 +602,13 @@ s64 queue_dequeue_header_internal(cqueue *q, cheadinfo *headinfo)
             assert(pthread_mutex_unlock(&q->mutex)==0);
             pthread_cond_broadcast(&q->cond);
             return itemnum;
+
         case QITEM_TYPE_BLOCK:
             errprintf("dequeue - wrong type of data in the queue: expected a dico and found a block\n");
             assert(pthread_mutex_unlock(&q->mutex)==0);
             pthread_cond_broadcast(&q->cond);
             return FSAERR_WRONGTYPE;  // ok but not found
+
         default: // should never happen
             errprintf("dequeue - wrong type of data in the queue: expected a dico and found an unknown item\n");
             assert(pthread_mutex_unlock(&q->mutex)==0);
@@ -616,7 +623,8 @@ bool queuelocked_is_first_item_ready(cqueue *q)
     cqueueitem *cur;
     
     if (!q)
-    {   errprintf("a parameter is null\n");
+    {
+        errprintf("a parameter is null\n");
         return false; // not found
     }
     
@@ -631,61 +639,62 @@ bool queuelocked_is_first_item_ready(cqueue *q)
 }
 
 // say what the next item which is ready in the queue is but do not remove it
-s64 queue_check_next_item(cqueue *q, int *type, char *magic)
+s64 queue_check_next_item(cqueue *q, int *type, u32 *headertype)
 {
     cqueueitem *cur;
-    
-    if (!q || !type || !magic)
-    {   errprintf("a parameter is null\n");
+
+    if (!q || !type || !headertype)
+    {
+        errprintf("a parameter is null\n");
         return FSAERR_EINVAL;
     }
-    
-    memset(magic, 0, FSA_SIZEOF_MAGIC);
-    *type=0;
-    
+
+    *headertype = 0;
+    *type = 0;
+
     assert(pthread_mutex_lock(&q->mutex)==0);
-    
+
     // while ((first-item-of-the-queue-is-not-ready) && (not-at-the-end-of-the-queue))
-    while ( (((cur=q->head)==NULL) || (cur->status!=QITEM_STATUS_DONE)) && (queuelocked_get_end_of_queue(q)==false) )
+    while ( (((cur=q->head) == NULL) || (cur->status != QITEM_STATUS_DONE)) && (queuelocked_get_end_of_queue(q) == false))
     {
         struct timespec t=queue_get_timeout();
         pthread_cond_timedwait(&q->cond, &q->mutex, &t);
     }
-    
+
     // if it failed at the other end of the queue
     if (queuelocked_get_end_of_queue(q))
-    {   assert(pthread_mutex_unlock(&q->mutex)==0);
+    {
+        assert(pthread_mutex_unlock(&q->mutex)==0);
         return FSAERR_ENDOFFILE;
     }
-    
+
     // test the first item
-    if (((cur=q->head)!=NULL) && (cur->status==QITEM_STATUS_DONE))
+    if (((cur = q->head) != NULL) && (cur->status == QITEM_STATUS_DONE))
     {
-        if (cur->type==QITEM_TYPE_BLOCK) // item to dequeue is a block
+        switch (cur->type)
         {
-            *type=cur->type;
-            memset(magic, 0, FSA_SIZEOF_MAGIC);
-            assert(pthread_mutex_unlock(&q->mutex)==0);
-            return FSAERR_SUCCESS;
-        }
-        else if (cur->type==QITEM_TYPE_HEADER) // item to dequeue is a dico
-        {
-            memcpy(magic, cur->headinfo.magic, FSA_SIZEOF_MAGIC); // header contents
-            *type=cur->type;
-            assert(pthread_mutex_unlock(&q->mutex)==0);
-            return FSAERR_SUCCESS;
-        }
-        else
-        {
-            errprintf("invalid item type in queue: type=%d\n", cur->type);
-            assert(pthread_mutex_unlock(&q->mutex)==0);
-            return FSAERR_EINVAL;
+            case QITEM_TYPE_BLOCK: // item to dequeue is a block
+                *type = cur->type;
+                *headertype = 0;
+                assert(pthread_mutex_unlock(&q->mutex)==0);
+                return FSAERR_SUCCESS;
+
+            case QITEM_TYPE_HEADER: // item to dequeue is a dico
+                *type = cur->type;
+                *headertype = cur->headinfo.headertype;
+                assert(pthread_mutex_unlock(&q->mutex)==0);
+                return FSAERR_SUCCESS;
+
+            default:
+                errprintf("invalid item type in queue: type=%d\n", cur->type);
+                assert(pthread_mutex_unlock(&q->mutex)==0);
+                return FSAERR_EINVAL;
         }
     }
-    
+
     assert(pthread_mutex_unlock(&q->mutex)==0);
     pthread_cond_broadcast(&q->cond);
-    
+
     return FSAERR_ENOENT;  // not found
 }
 
@@ -702,14 +711,16 @@ s64 queue_destroy_first_item(cqueue *q)
     assert(pthread_mutex_lock(&q->mutex)==0);
     
     // while ((first-item-of-the-queue-is-not-ready or first-item-is-being-processed-by-comp-thread) && (not-at-the-end-of-the-queue))
-    while ( (((cur=q->head)==NULL) || (cur->status==QITEM_STATUS_PROGRESS)) && (queuelocked_get_end_of_queue(q)==false) )
-    {   struct timespec t=queue_get_timeout();
+    while ( (((cur=q->head) == NULL) || (cur->status == QITEM_STATUS_PROGRESS)) && (queuelocked_get_end_of_queue(q) == false) )
+    {
+        struct timespec t=queue_get_timeout();
         pthread_cond_timedwait(&q->cond, &q->mutex, &t);
     }
     
     // if it failed at the other end of the queue
     if (queuelocked_get_end_of_queue(q))
-    {   assert(pthread_mutex_unlock(&q->mutex)==0);
+    {
+        assert(pthread_mutex_unlock(&q->mutex)==0);
         return FSAERR_ENDOFFILE;
     }
     
@@ -722,6 +733,7 @@ s64 queue_destroy_first_item(cqueue *q)
             q->blkcount--;
             free(cur->blkinfo.blkdata);
             break;
+
         case QITEM_TYPE_HEADER:
             dico_destroy(cur->headinfo.dico);
             break;
@@ -732,5 +744,6 @@ s64 queue_destroy_first_item(cqueue *q)
     q->itemcount--;
     assert(pthread_mutex_unlock(&q->mutex)==0);
     pthread_cond_broadcast(&q->cond);
+
     return FSAERR_SUCCESS;
 }

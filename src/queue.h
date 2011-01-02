@@ -38,7 +38,8 @@ struct s_queue;
 typedef struct s_queue cqueue;
 
 struct s_blockinfo // used when (type==QITEM_TYPE_BLOCK)
-{   char                 *blkdata; // pointer to data block as it is at a particular time (compressed or uncompressed)
+{
+    char                 *blkdata; // pointer to data block as it is at a particular time (compressed or uncompressed)
     u32                  blkrealsize; // size of the data in the normal state (not compressed and not crypted)
     u64                  blkoffset; // offset of the block in the normal file
     u32                  blkarcsum; // checksum of the block as it it when it's in the archive (compressed and encrypted)
@@ -51,13 +52,15 @@ struct s_blockinfo // used when (type==QITEM_TYPE_BLOCK)
 };
 
 struct s_headinfo // used when (type==QITEM_TYPE_HEADER)
-{   char                 magic[FSA_SIZEOF_MAGIC+1]; // magic which is used to identify the type of header
-    u16                  fsid; // the filesystem to which this header belongs to, or FSA_FILESYSID_NULL if global header
+{
+    u32                  headertype; // number which is used to identify the type of header
+    u16                  fsid;  // the filesystem to which this header belongs to, or FSA_FILESYSID_NULL if global header
     struct s_dico        *dico;
 };
 
 struct s_queueitem
-{   int                  type; // QITEM_TYPE_BLOCK or QITEM_TYPE_HEADER
+{
+    int                  type; // QITEM_TYPE_BLOCK or QITEM_TYPE_HEADER
     int                  status; // compressed, being-compressed, not-yet-compressed
     s64                  itemnum; // unique identifier of the item in the queue
     cqueueitem           *next; // next block in the linked list
@@ -66,7 +69,8 @@ struct s_queueitem
 };
 
 struct s_queue
-{   cqueueitem           *head; // head of the queue: first item
+{
+    cqueueitem           *head; // head of the queue: first item
     pthread_mutex_t      mutex; // pthread mutex for data protection
     pthread_cond_t       cond; // condition for pthread synchronization
     s64                  curitemnum; // unique id given to every new item (block or header)
@@ -89,12 +93,12 @@ s64  queue_destroy(cqueue *l);
 s64  queue_count(cqueue *l);
 s64  queue_count_status(struct s_queue *l, int status);
 s64  queue_is_first_item_ready(struct s_queue *q);
-s64  queue_check_next_item(cqueue *q, int *type, char *magic);
+s64  queue_check_next_item(cqueue *q, int *type, u32 *headertype);
 s64  queue_count_items_todo(cqueue *q);
 
 // modification functions
 s64  queue_add_block(cqueue *q, cblockinfo *blkinfo, int status);
-s64  queue_add_header(cqueue *q, struct s_dico *d, char *magic, u16 fsid);
+s64  queue_add_header(cqueue *q, struct s_dico *d, u32 headertype, u16 fsid);
 s64  queue_add_header_internal(cqueue *q, cheadinfo *headinfo);
 s64  queue_replace_block(cqueue *q, s64 itemnum, cblockinfo *blkinfo, int newstatus);
 s64  queue_destroy_first_item(cqueue *q);
@@ -105,7 +109,7 @@ bool queue_get_end_of_queue(cqueue *q);
 
 // get item from queue functions
 s64  queue_get_first_block_todo(cqueue *q, cblockinfo *blkinfo);
-s64  queue_dequeue_header(cqueue *q, struct s_dico **d, char *magicbuf, u16 *fsid);
+s64  queue_dequeue_header(cqueue *q, struct s_dico **d, u32 *headertype, u16 *fsid);
 s64  queue_dequeue_header_internal(cqueue *q, cheadinfo *headinfo);
 s64  queue_dequeue_block(cqueue *q, cblockinfo *blkinfo);
 s64  queue_dequeue_first(cqueue *q, int *type, cheadinfo *headinfo, cblockinfo *blkinfo);

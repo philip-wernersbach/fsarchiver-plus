@@ -203,18 +203,19 @@ int is_dir_empty(char *path)
     return 0;
 }
 
-// generate a non-null random u32
-u32 generate_random_u32_id(void)
+// generate a non-null random number
+u64 generate_random_number()
 {
     struct timeval now;
-    u32 archid;
+    u64 randnum;
 
     memset(&now, 0, sizeof(struct timeval));
     do
     {   gettimeofday(&now, NULL);
-        archid=((u32)now.tv_sec)^((u32)now.tv_usec);
-    } while (archid==0);
-    return archid;
+        randnum = ((u64)now.tv_sec) ^ ((u64)now.tv_usec);
+    }
+    while (randnum == 0);
+    return randnum;
 }
 
 u32 fletcher32(u8 *data, u32 len)
@@ -427,12 +428,16 @@ int generate_random_tmpdir(char *buffer, int bufsize, int n)
 }
 
 // returns true if magic is a valid magic-string
-int is_magic_valid(char *magic)
+int is_valid_header_type(u32 headertype)
 {
     int i;
-    for (i=0; valid_magic[i]!=NULL; i++)
-        if (memcmp(magic, valid_magic[i], FSA_SIZEOF_MAGIC)==0)
+
+    for (i = 0; g_valid_header_types[i] != 0; i++)
+    {
+        if (headertype == g_valid_header_types[i])
             return true;
+    }
+
     return false;
 }
 

@@ -56,14 +56,12 @@ bool iobuffer_get_end_of_buffer(ciobuffer *iob);
 
 int iobuffer_write_raw_data(ciobuffer *iob, char *buffer, u32 datasize);
 int iobuffer_write_block(ciobuffer *iob, struct s_blockinfo *blkinfo, u16 fsid);
-int iobuffer_write_header(ciobuffer *iob, struct s_dico *d, char *magic, u16 fsid);
-int iobuffer_write_dico(ciobuffer *wb, struct s_dico *d, char *magic);
+int iobuffer_write_logichead(ciobuffer *iob, struct s_dico *d, u32 headertype, u16 fsindex);
 int iobuffer_read_fec_block(ciobuffer *iob, char *buffer, u32 bufsize, u32 *bytesused);
 
 int iobuffer_read_raw_data(ciobuffer *iob, char *buffer, u32 datasize);
 int iobuffer_read_block(ciobuffer *iob, struct s_dico *in_blkdico, int *out_sumok, struct s_blockinfo *out_blkinfo);
-int iobuffer_read_header(ciobuffer *iob, char *magic, struct s_dico **d, u16 *fsid);
-int iobuffer_read_dico(ciobuffer *iob, struct s_dico *d);
+int iobuffer_read_logichead(ciobuffer *iob, u32 *headertype, struct s_dico **d, u16 *fsindex);
 int iobuffer_write_fec_block(ciobuffer *iob, char *buffer, u32 bufsize, u32 bytesused);
 
 #endif // __IOBUFFER_H__

@@ -3,6 +3,15 @@ fsarchiver: Filesystem Archiver for Linux [http://www.fsarchiver.org]
 * 0.7.0:
   - Major feature: implemented savept, restpt, showpt (save and restore partition tables)
   - Added configuration file: /etc/fsarchiver.conf (it currently only supports "exclude_restpt")
+  - Implemented error correction based on Forward Error Correction (FEC) (cf: option -y)
+  - File format more robust when corruptions / insertions / deletions happen in the archive
+* 0.6.12 (2010-12-25):
+  - Fix: get correct mount info for root device when not listed in /proc/mounts (eg: missing "/dev/root")
+* 0.6.11 (2010-12-01):
+  - Updated supported btrfs compat flags to make it work with btrfs-2.6.35
+  - The -c/--cryptpass option now supports interactive passwords: use "-c -"
+* 0.6.10 (2010-05-09):
+  - Fixed support of symbolic links on ntfs filesystems with ntfs3g >= 2010.3.6
 * 0.6.9 (2010-05-04):
   - Fix in probe: show devmapper/lvm volumes even when /dev/dm-xx does not exist
   - Fixed restoration of very small archives (archive < 4K)

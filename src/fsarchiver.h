@@ -20,7 +20,7 @@
 
 #include "types.h"
 
-// ----------------------------- min and max -----------------------------
+// ----------------------------------- min and max -----------------------------
 #if !defined(min)
 #    define min(a, b)            ((a) < (b) ? (a) : (b))
 #endif
@@ -29,11 +29,11 @@
 #    define max(a, b)            ((a) > (b) ? (a) : (b))
 #endif
 
-// -------------------------------- fsarchiver commands ---------------------------------------------
+// ----------------------------------- fsarchiver commands ---------------------------------------------
 enum {OPER_NULL=0, OPER_SAVEFS, OPER_RESTFS, OPER_SAVEDIR, OPER_RESTDIR, 
       OPER_ARCHINFO, OPER_PROBE, OPER_SAVEPT, OPER_RESTPT, OPER_SHOWPT};
 
-// -------------------------------- fsarchiver status ---------------------------------------------
+// ----------------------------------- fsarchiver status ---------------------------------------------
 enum {STATUS_RUNNING, STATUS_ABORTED, STATUS_FAILED};
 
 // ----------------------------------- dico sections ------------------------------------------------
@@ -100,12 +100,15 @@ enum {FSAERR_SUCCESS=0,           // success
       FSAERR_ENOSPC=-8,           // no space left on device
       FSAERR_SEEK=-9,             // lseek64 error
       FSAERR_READ=-10,            // read error
-      FSAERR_WRITE=-11            // write error
+      FSAERR_WRITE=-11,           // write error
+      FSAERR_CORRUPT=-12,         // archive is corrupt
+      FSAERR_WRONGVOL=-13,        // wrong volume
+      FSAERR_WRONGVER=-14,        // wrong version
+      FSAERR_WRONGARCH=-15,       // wrong archive
+      FSAERR_OPEN=-16,            // file cannot be open
+      FSAERR_EXISTS=-17,          // file already exists
+      FSAERR_STAT=-18,            // cannot get file info
 };
-
-// -------------------------------- old errors codes ---------------------------------------------
-enum {OLDERR_FATAL=1,
-      OLDERR_MINOR=2};
 
 // ----------------------------- fsarchiver const ------------------------
 #define FSA_VERSION              PACKAGE_VERSION
@@ -154,25 +157,26 @@ enum {OLDERR_FATAL=1,
 
 #define FSA_FILEFLAGS_SPARSE     1<<0           // set when a regfile is a sparse file
 
-// ----------------------------- fsarchiver magics --------------------------------------------------
-#define FSA_SIZEOF_MAGIC         4
-#define FSA_MAGIC_MAIN           "ArCh" // archive header (one per archive at the beginning of the first volume)
-#define FSA_MAGIC_FSIN           "FsIn" // filesys info (one per filesystem at the beginning of the archive)
-#define FSA_MAGIC_FSYB           "FsYs" // filesys begin (one per filesystem when the filesys contents start)
-#define FSA_MAGIC_DIRS           "DiRs" // dirs info (one per archive after mainhead before flat dirs/files)
-#define FSA_MAGIC_OBJT           "ObJt" // object header (one per object: regfiles, dirs, symlinks, ...)
-#define FSA_MAGIC_BLKH           "BlKh" // datablk header (one per data block, each regfile may have [0-n])
-#define FSA_MAGIC_FILF           "FiLf" // filedat footer (one per regfile, after the list of data blocks)
-#define FSA_MAGIC_DATF           "DaEn" // data footer (one per file system, at the end of its contents, or after the contents of the flatfiles)
+// ----------------------------- fsarchiver logical header types -------------------------------------
+#define FSA_HEADTYPE_MAIN        ((u32)0x68437241) // archive header (one per archive at the beginning of the first volume)
+#define FSA_HEADTYPE_FSIN        ((u32)0x6E497346) // filesys info (one per filesystem at the beginning of the archive)
+#define FSA_HEADTYPE_FSYB        ((u32)0x73597346) // filesys begin (one per filesystem when the filesys contents start)
+#define FSA_HEADTYPE_DIRS        ((u32)0x73526944) // dirs info (one per archive after mainhead before flat dirs/files)
+#define FSA_HEADTYPE_OBJT        ((u32)0x744A624F) // object header (one per object: regfiles, dirs, symlinks, ...)
+#define FSA_HEADTYPE_BLKH        ((u32)0x684B6C42) // datablk header (one per data block, each regfile may have [0-n])
+#define FSA_HEADTYPE_FILF        ((u32)0x664C6946) // filedat footer (one per regfile, after the list of data blocks)
+#define FSA_HEADTYPE_DATF        ((u32)0x6E456144) // data footer (one per file system, at the end of its contents, or after the contents of the flatfiles)
 
-#define FSA_MAGIC_IOH            ((u32)0x72417346) // magic number written in the low-level ArchiveIO-Header ("FsAr" in little-endian)
-#define FSA_MAGIC_FEC            ((u32)0x68436546) // magic number written in the mid-level FEC-Header ("FeCh" in little-endian)
+// ----------------------------- fsarchiver magic numbers --------------------------------------------
+#define FSA_MAGIC_IOPHYSHEADER   ((u32)0x72417346) // written in each physical-header ("FsAr" in little-endian)
+#define FSA_MAGIC_LOGICHEADER1   ((u32)0x31486C46) // starts each logical-header ("FlH1" in little-endian)
+#define FSA_MAGIC_LOGICHEADER2   ((u32)0x32486C46) // finishes each logical-header ("FlH2" in little-endian)
 
-// ------------ global variables ---------------------------
-extern char *valid_magic[];
+// ----------------------------- global variables ----------------------------------------------------
+extern u32 g_valid_header_types[];
 extern char g_archive[];
 
-// -------------------------------- version_number to u64 -------------------------------------------
+// -------------------------------- version_number to u64 --------------------------------------------
 #define FSA_VERSION_BUILD(a, b, c, d)     ((u64)((((u64)a&0xFFFF)<<48)+(((u64)b&0xFFFF)<<32)+(((u64)c&0xFFFF)<<16)+(((u64)d&0xFFFF)<<0)))
 #define FSA_VERSION_GET_A(ver)            ((((u64)ver)>>48)&0xFFFF)
 #define FSA_VERSION_GET_B(ver)            ((((u64)ver)>>32)&0xFFFF)

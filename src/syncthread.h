@@ -23,8 +23,8 @@ extern struct s_queue *g_queue;
 extern struct s_iobuffer *g_iobuffer;
 
 // global threads sync functions
+void set_status(int status, char *context);
 int get_status();
-void set_status(int status);
 
 // secondary threads counter
 void inc_secthreads();

@@ -76,7 +76,6 @@ int archinfo_show_mainhead(carchinfo *archinfo)
 
 int archinfo_show_fshead(cdico *dicofshead, int fsid)
 {
-    char magic[FSA_SIZEOF_MAGIC+1];
     char fsbuf[FSA_MAX_FSNAMELEN];
     char buffer[256];
     char fslabel[256];
@@ -85,10 +84,7 @@ int archinfo_show_fshead(cdico *dicofshead, int fsid)
     u64 fsbytestotal;
     u64 fsbytesused;
     u64 temp64;
-    
-    // init
-    memset(magic, 0, sizeof(magic));
-    
+
     if (!dicofshead)
     {
         errprintf("dicofshead is null\n");
