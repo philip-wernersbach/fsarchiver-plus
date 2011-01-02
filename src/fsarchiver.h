@@ -70,9 +70,11 @@ enum {MAINHEADKEY_NULL=0, MAINHEADKEY_FILEFORMATVER, MAINHEADKEY_PROGVERCREAT, M
       MAINHEADKEY_CREATTIME, MAINHEADKEY_ARCHLABEL, MAINHEADKEY_ARCHTYPE, MAINHEADKEY_FSCOUNT, 
       MAINHEADKEY_COMPRESSALGO, MAINHEADKEY_COMPRESSLEVEL, MAINHEADKEY_ENCRYPTALGO, 
       MAINHEADKEY_BUFCHECKPASSCLEARMD5, MAINHEADKEY_BUFCHECKPASSCRYPTBUF, MAINHEADKEY_FSACOMPLEVEL,
-      MAINHEADKEY_MINFSAVERSION, MAINHEADOLD_HASDIRSINFOHEAD, MAINHEADKEY_PTCOUNT};
+      MAINHEADKEY_MINFSAVERSION, MAINHEADOLD_HASDIRSINFOHEAD};
 
-enum {MAINHEADSEC_STD=0, MAINHEADSEC_PARTTABLE=1};
+enum {LAYOUTHEADKEY_NULL=0, LAYOUTHEADKEY_PTCOUNT};
+
+enum {LAYOUTHEADSEC_STD=0, LAYOUTHEADSEC_PARTTABLE=1};
 
 enum {FSYSHEADKEY_NULL=0, FSYSHEADKEY_FILESYSTEM, FSYSHEADKEY_MNTPATH, FSYSHEADKEY_BYTESTOTAL, 
       FSYSHEADKEY_BYTESUSED, FSYSHEADKEY_FSLABEL, FSYSHEADKEY_FSUUID, FSYSHEADKEY_FSINODESIZE, 
@@ -142,7 +144,6 @@ enum {FSAERR_SUCCESS=0,           // success
 #define FSA_DEF_COMPRESS_LEVEL   6              // compress with "gzip -6" by default
 #define FSA_COST_PER_FILE        16384          // how much it cost to copy an empty file/dir/link: used to eval the progress bar
 
-#define FSA_FEC_MAINHEAD_COPIES  2              // write two copies of the main fec header 
 #define FSA_FEC_IOBUFSIZE        128            // how many Forward-Error-Correction blocks (1 block = K chunks) in the iobuffer
 #define FSA_FEC_PACKET_SIZE      4096           // size of a packet passed to the Forward-Error-Correction algorithm
 #define FSA_FEC_VALUE_K          16             // number of raw chunks passed to the Forward-Error-Correction algorithm
@@ -154,11 +155,14 @@ enum {FSAERR_SUCCESS=0,           // success
 
 #define FSA_FILESYSID_NULL       0xFFFF
 #define FSA_CHECKPASSBUF_SIZE    4096
-
+#define FSA_MAINHEAD_PADDING     65535          // size of the padding used to make the main header bigger (to escape corruptions)
+#define FSA_MAINHEAD_COPIES      3              // how many copies of the main header do we want to write in the archive
 #define FSA_FILEFLAGS_SPARSE     1<<0           // set when a regfile is a sparse file
 
 // ----------------------------- fsarchiver logical header types -------------------------------------
-#define FSA_HEADTYPE_MAIN        ((u32)0x68437241) // archive header (one per archive at the beginning of the first volume)
+#define FSA_HEADTYPE_MAIN        ((u32)0x68437241) // archive header (at the beginning of the first volume)
+#define FSA_HEADTYPE_PADG        ((u32)0x67446150) // padding used to separate different copies of the same header
+#define FSA_HEADTYPE_DILA        ((u32)0x614C6944) // disk layout header (at the beginning of the first volume)
 #define FSA_HEADTYPE_FSIN        ((u32)0x6E497346) // filesys info (one per filesystem at the beginning of the archive)
 #define FSA_HEADTYPE_FSYB        ((u32)0x73597346) // filesys begin (one per filesystem when the filesys contents start)
 #define FSA_HEADTYPE_DIRS        ((u32)0x73526944) // dirs info (one per archive after mainhead before flat dirs/files)

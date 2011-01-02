@@ -254,7 +254,7 @@ int compression_function(int oper)
 
     while (queue_get_end_of_queue(g_queue) == false)
     {
-        if ((blknum=queue_get_first_block_todo(g_queue, &blkinfo))>0) // block found
+        if ((blknum = queue_get_first_block_todo(g_queue, &blkinfo)) > 0) // block found
         {
             switch (oper)
             {
@@ -265,12 +265,12 @@ int compression_function(int oper)
                     res=decompress_block_generic(&blkinfo);
                     break;
                 default:
-                    errprintf("oper is invalid: %d\n", oper);
                     goto thread_comp_fct_error;
             }
-            if (res!=0)
-            {   msgprintf(MSG_STACK, "compress_block()=%d failed\n", res);
-                goto thread_comp_fct_error;
+            if (res != 0)
+            {
+                msgprintf(MSG_STACK, "compress_block()=%d failed\n", res);
+                //goto thread_comp_fct_error;
             }
             // don't check for errors: it's normal to fail when we terminate after a problem
             queue_replace_block(g_queue, blknum, &blkinfo, QITEM_STATUS_DONE);

@@ -1097,102 +1097,128 @@ int extractar_extract_read_objects(cextractar *exar, int *errors, char *destdir,
     return 0;
 }
 
+int extractar_read_disk_layout(carchinfo *archinfo, cdico **dicolayout)
+{
+    u32 headertype;
+
+    if (queue_dequeue_header(g_queue, dicolayout, &headertype, NULL) <= 0)
+    {
+        errprintf("queue_dequeue_header() failed: cannot read disk-layout header\n");
+        return -1;
+    }
+
+    if (headertype != FSA_HEADTYPE_DILA)
+    {
+        errprintf("header is not what we expected: found=[%ld] and expected=[%ld]\n", (long)headertype, (long)FSA_HEADTYPE_DILA);
+        return -1;
+    }
+
+    if (dico_get_u64(*dicolayout, LAYOUTHEADSEC_STD, LAYOUTHEADKEY_PTCOUNT, &archinfo->ptcount) != 0)
+        archinfo->ptcount = 0;
+
+    return 0;
+}
+
 int extractar_read_mainhead(carchinfo *archinfo, cdico **dicomainhead)
 {
     u8 bufcheckclear[FSA_CHECKPASSBUF_SIZE+8];
     u8 bufcheckcrypt[FSA_CHECKPASSBUF_SIZE+8];
+    bool foundmain = false;
+    cdico *curdico;
     u32 headertype;
     u16 cryptbufsize;
     u8 md5sumar[16];
     u8 md5sumnew[16];
     u64 clearsize;
     int passlen;
+    int type;
 
     assert(dicomainhead);
 
-    if (queue_dequeue_header(g_queue, dicomainhead, &headertype, NULL) <= 0)
+    // read all copies of the main header and ignore padding headers
+    while ((queue_check_next_item(g_queue, &type, &headertype) == 0) && (headertype == FSA_HEADTYPE_MAIN || headertype == FSA_HEADTYPE_PADG))
     {
-        errprintf("queue_dequeue_header() failed: cannot read main header\n");
+        if (queue_dequeue_header(g_queue, &curdico, &headertype, NULL) <= 0)
+        {
+            errprintf("extractar_read_mainhead() failed: cannot read main header\n");
+            return -1;
+        }
+
+        if ((headertype == FSA_HEADTYPE_MAIN) && (foundmain == false))
+        {
+            *dicomainhead = curdico;
+            foundmain = true;
+        }
+        else
+        {
+            dico_destroy(curdico);
+        }
+    }
+
+    if (foundmain == false)
+    {
+        errprintf("extractar_read_mainhead() failed: main header not found in archive\n");
         return -1;
     }
 
-    if (headertype != FSA_HEADTYPE_MAIN)
-    {
-        errprintf("header is not what we expected: found=[%ld] and expected=[%ld]\n", (long)headertype, (long)FSA_HEADTYPE_MAIN);
-        return -1;
-    }
-
-    if (dico_get_u32(*dicomainhead, MAINHEADSEC_STD, MAINHEADKEY_ARCHTYPE, &archinfo->archtype)!=0)
+    if (dico_get_u32(*dicomainhead, 0, MAINHEADKEY_ARCHTYPE, &archinfo->archtype)!=0)
     {
         errprintf("cannot find MAINHEADKEY_ARCHTYPE in main-header\n");
         return -1;
     }
 
-    if (archinfo->archtype==ARCHTYPE_FILESYSTEMS && dico_get_u64(*dicomainhead, MAINHEADSEC_STD, MAINHEADKEY_FSCOUNT, &archinfo->fscount)!=0)
+    if (archinfo->archtype==ARCHTYPE_FILESYSTEMS && dico_get_u64(*dicomainhead, 0, MAINHEADKEY_FSCOUNT, &archinfo->fscount)!=0)
     {
         errprintf("cannot find MAINHEADKEY_FSCOUNT in main-header\n");
         return -1;
     }
 
-    if (archinfo->archtype==ARCHTYPE_FILESYSTEMS && dico_get_u64(*dicomainhead, MAINHEADSEC_STD, MAINHEADKEY_PTCOUNT, &archinfo->ptcount)!=0)
-        archinfo->ptcount=0; // MAINHEADKEY_PTCOUNT was not present in archives created with fsarchiver < 0.7.0
-
-    /*if (dico_get_u32(*dicomainhead, MAINHEADSEC_STD, MAINHEADKEY_ARCHIVEID, &exar->ai.archid)!=0)
-    {
-        errprintf("cannot find MAINHEADKEY_ARCHIVEID in main-header\n");
-        return -1;
-    }*/
-
-    if (dico_get_data(*dicomainhead, MAINHEADSEC_STD, MAINHEADKEY_FILEFORMATVER, archinfo->filefmt, FSA_MAX_FILEFMTLEN, NULL)!=0)
+    if (dico_get_data(*dicomainhead, 0, MAINHEADKEY_FILEFORMATVER, archinfo->filefmt, FSA_MAX_FILEFMTLEN, NULL)!=0)
     {
         errprintf("cannot find MAINHEADKEY_FILEFORMATVER in main-header\n");
         return -1;
     }
 
-    if (dico_get_data(*dicomainhead, MAINHEADSEC_STD, MAINHEADKEY_PROGVERCREAT, archinfo->creatver, FSA_MAX_PROGVERLEN, NULL)!=0)
+    if (dico_get_data(*dicomainhead, 0, MAINHEADKEY_PROGVERCREAT, archinfo->creatver, FSA_MAX_PROGVERLEN, NULL)!=0)
     {
         errprintf("cannot find MAINHEADKEY_PROGVERCREAT in main-header\n");
         return -1;
     }
 
-    if (dico_get_data(*dicomainhead, MAINHEADSEC_STD, MAINHEADKEY_ARCHLABEL, archinfo->label, FSA_MAX_LABELLEN, NULL)!=0)
+    if (dico_get_data(*dicomainhead, 0, MAINHEADKEY_ARCHLABEL, archinfo->label, FSA_MAX_LABELLEN, NULL)!=0)
     {   errprintf("cannot find MAINHEADKEY_ARCHLABEL in main-header\n");
         return -1;
     }
 
-    if (dico_get_u32(*dicomainhead, MAINHEADSEC_STD, MAINHEADKEY_COMPRESSALGO, &archinfo->compalgo)!=0)
+    if (dico_get_u32(*dicomainhead, 0, MAINHEADKEY_COMPRESSALGO, &archinfo->compalgo)!=0)
     {
         errprintf("cannot find MAINHEADKEY_COMPRESSALGO in main-header\n");
         return -1;
     }
 
-    if (dico_get_u32(*dicomainhead, MAINHEADSEC_STD, MAINHEADKEY_ENCRYPTALGO, &archinfo->cryptalgo)!=0)
+    if (dico_get_u32(*dicomainhead, 0, MAINHEADKEY_ENCRYPTALGO, &archinfo->cryptalgo)!=0)
     {
         errprintf("cannot find MAINHEADKEY_ENCRYPTALGO in main-header\n");
         return -1;
     }
 
-    if (dico_get_u32(*dicomainhead, MAINHEADSEC_STD, MAINHEADKEY_COMPRESSLEVEL, &archinfo->complevel)!=0)
+    if (dico_get_u32(*dicomainhead, 0, MAINHEADKEY_COMPRESSLEVEL, &archinfo->complevel)!=0)
     {
         errprintf("cannot find MAINHEADKEY_COMPRESSLEVEL in main-header\n");
         return -1;
     }
 
-    if (dico_get_u32(*dicomainhead, MAINHEADSEC_STD, MAINHEADKEY_FSACOMPLEVEL, &archinfo->fsacomp)!=0)
+    if (dico_get_u32(*dicomainhead, 0, MAINHEADKEY_FSACOMPLEVEL, &archinfo->fsacomp)!=0)
     {
         errprintf("cannot find MAINHEADKEY_FSACOMPLEVEL in main-header\n");
         return -1;
     }
 
-    if (dico_get_u64(*dicomainhead, MAINHEADSEC_STD, MAINHEADKEY_CREATTIME, &archinfo->creattime)!=0)
+    if (dico_get_u64(*dicomainhead, 0, MAINHEADKEY_CREATTIME, &archinfo->creattime)!=0)
     {
         errprintf("cannot find MAINHEADKEY_CREATTIME in main-header\n");
         return -1;
     }
-
-    // MAINHEADKEY_HASDIRSINFOHEAD has been introduced in fsarchiver-0.6.7: don't fail if missing
-    /*if (dico_get_u32(*dicomainhead, MAINHEADSEC_STD, MAINHEADKEY_HASDIRSINFOHEAD, &temp32)==0)
-        exar->ai.hasdirsinfohead=temp32;*/
 
     // check the file format. New versions based on "FsArCh_002" also understand "FsArCh_001" which is very close (and "FsArCh_00Y"=="FsArCh_001")
     if (strcmp(archinfo->filefmt, FSA_FILEFORMAT)!=0 && strcmp(archinfo->filefmt, "FsArCh_00Y")!=0 && strcmp(archinfo->filefmt, "FsArCh_001")!=0)
@@ -1204,18 +1230,18 @@ int extractar_read_mainhead(carchinfo *archinfo, cdico **dicomainhead)
     }
 
     // read minimum fsarchiver version requirement
-    dico_get_u64(*dicomainhead, MAINHEADSEC_STD, MAINHEADKEY_MINFSAVERSION, &archinfo->minfsaver);
+    dico_get_u64(*dicomainhead, 0, MAINHEADKEY_MINFSAVERSION, &archinfo->minfsaver);
 
     // if encryption is enabled, check the password is correct using the encrypted random buffer saved in the archive
     if (archinfo->cryptalgo != ENCRYPT_NONE)
     {
         memset(md5sumar, 0, sizeof(md5sumar));
         memset(md5sumnew, 0, sizeof(md5sumnew));
-        if (dico_get_data(*dicomainhead, MAINHEADSEC_STD, MAINHEADKEY_BUFCHECKPASSCRYPTBUF, bufcheckcrypt, sizeof(bufcheckcrypt), &cryptbufsize)!=0)
+        if (dico_get_data(*dicomainhead, 0, MAINHEADKEY_BUFCHECKPASSCRYPTBUF, bufcheckcrypt, sizeof(bufcheckcrypt), &cryptbufsize)!=0)
         {   errprintf("cannot find MAINHEADKEY_BUFCHECKPASSCRYPTBUF in main-header\n");
             return -1;
         }
-        if (dico_get_data(*dicomainhead, MAINHEADSEC_STD, MAINHEADKEY_BUFCHECKPASSCLEARMD5, md5sumar, sizeof(md5sumar)+99, NULL)!=0)
+        if (dico_get_data(*dicomainhead, 0, MAINHEADKEY_BUFCHECKPASSCLEARMD5, md5sumar, sizeof(md5sumar)+99, NULL)!=0)
         {   errprintf("cannot find MAINHEADKEY_BUFCHECKPASSCLEARMD5 in main-header\n");
             return -1;
         }
@@ -1417,6 +1443,7 @@ int restore(int argc, char **argv, int oper)
     cdico *dicofsinfo[FSA_MAX_FSPERARCH];
     cstrdico *dicoargv[FSA_MAX_FSPERARCH];
     cdico *dicomainhead=NULL;
+    cdico *dicodisklayout=NULL;
     carchinfo archinfo;
     char *destdir=argv[0];
     cdico *dirsinfo=NULL;
@@ -1500,14 +1527,20 @@ int restore(int argc, char **argv, int oper)
         errprintf("pthread_create(thread_iobuf_to_queue_fct) failed\n");
         goto do_extract_error;
     }
-    
+
     // read archive main header
-    if (extractar_read_mainhead(&archinfo, &dicomainhead) < 0)
+    if (extractar_read_mainhead(&archinfo, &dicomainhead) != 0)
     {
         msgprintf(MSG_STACK, "read_mainhead() failed\n");
         goto do_extract_error;
     }
-    
+
+    // read disk layout header
+    if (extractar_read_disk_layout(&archinfo, &dicodisklayout) != 0)
+    {
+        errprintf("extractar_read_disk_layout() failed: cannot read disk layout\n");
+    }
+
     // check that the minimum fsarchiver version required is ok
     curver = FSA_VERSION_BUILD(PACKAGE_VERSION_A, PACKAGE_VERSION_B, PACKAGE_VERSION_C, PACKAGE_VERSION_D);
     msgprintf(MSG_VERB2, "Current fsarchiver version: %d.%d.%d.%d\n", (int)FSA_VERSION_GET_A(curver), 
@@ -1671,10 +1704,10 @@ int restore(int argc, char **argv, int oper)
                         stats_show(exar.stats, i);
                     totalerr+=stats_errcount(exar.stats);
                 }
-                // else: the thread_queueiface automatically skips filesystem when g_fsbitmap[fsid]==0
+                // else: the thread_queue2iobuf automatically skips filesystem when g_fsbitmap[fsid]==0
             }
             break;
-            
+
         case OPER_RESTDIR:
             exar.fsid=0;
             memset(&exar.stats, 0, sizeof(exar.stats)); // init stats to zero
@@ -1686,15 +1719,15 @@ int restore(int argc, char **argv, int oper)
             stats_show(exar.stats, 0);
             totalerr+=stats_errcount(exar.stats);
             break;
-            
+
         case OPER_RESTPT:
             for (i=0; (i < archinfo.ptcount) && (i < FSA_MAX_PTPERARCH) && (get_status() == STATUS_RUNNING); i++)
             {
-                if (dicoargv[i]!=NULL) // that parttable has been requested on the command line
+                if (dicoargv[i] != NULL) // that parttable has been requested on the command line
                 {
-                    if (dico_get_string(dicomainhead, MAINHEADSEC_PARTTABLE, i, restptbuf, (u16)sizeof(restptbuf))<0)
+                    if (dico_get_string(dicodisklayout, LAYOUTHEADSEC_PARTTABLE, i, restptbuf, (u16)sizeof(restptbuf)) < 0)
                     {
-                        errprintf("dico_get_string(%d, %d) failed to read the partition table description\n", MAINHEADSEC_PARTTABLE, i);
+                        errprintf("dico_get_string(%d, %d) failed to read the partition table description\n", LAYOUTHEADSEC_PARTTABLE, i);
                         goto do_extract_error;
                     }
                     if (restpt(restptbuf, i, dicoargv[i])!=0)
@@ -1709,9 +1742,9 @@ int restore(int argc, char **argv, int oper)
         case OPER_SHOWPT:
             for (i=0; (i < archinfo.ptcount) && (i < FSA_MAX_PTPERARCH) && (get_status() == STATUS_RUNNING); i++)
             {
-                if (dico_get_string(dicomainhead, MAINHEADSEC_PARTTABLE, i, restptbuf, (u16)sizeof(restptbuf))<0)
+                if (dico_get_string(dicodisklayout, LAYOUTHEADSEC_PARTTABLE, i, restptbuf, (u16)sizeof(restptbuf))<0)
                 {
-                    errprintf("dico_get_string(%d, %d) failed to read the partition table description\n", MAINHEADSEC_PARTTABLE, i);
+                    errprintf("dico_get_string(%d, %d) failed to read the partition table description\n", LAYOUTHEADSEC_PARTTABLE, i);
                     goto do_extract_error;
                 }
                 if (showpt(restptbuf, i)!=0)
@@ -1749,25 +1782,24 @@ int restore(int argc, char **argv, int oper)
 do_extract_error:
     msgprintf(MSG_DEBUG1, "THREAD-MAIN2: exit error\n");
     set_status(STATUS_FAILED, "restore.c(do_extract_error)");
-    while (queue_get_end_of_queue(g_queue)==false) // wait until all the compression threads exit
-        queue_destroy_first_item(g_queue); // empty queue
     ret=-1;
 
 do_extract_success:
     msgprintf(MSG_DEBUG1, "THREAD-MAIN2: exit success\n");
     msgprintf(MSG_DEBUG2, "queue_count_items_todo(g_queue)=%d\n", (int)queue_count_items_todo(g_queue));
-    while (queue_count_items_todo(g_queue)>0) // let thread_compress process all the pending blocks
+    while (queue_count_items_todo(g_queue) > 0) // let thread_compress process all the pending blocks
     {
+        printf("FDEBUG: queue_count_items_todo(): %ld\n", (long)queue_count_items_todo(g_queue));
         msgprintf(MSG_DEBUG2, "queue_count_items_todo(): %ld\n", (long)queue_count_items_todo(g_queue));
         usleep(10000);
     }
     msgprintf(MSG_DEBUG2, "queue_count_items_todo(g_queue)=%d\n", (int)queue_count_items_todo(g_queue));
     // now we are sure that thread_compress is not working on an item in the queue so we can empty the queue
-    while (get_secthreads()>0 && queue_get_end_of_queue(g_queue)==false)
+    while ((get_secthreads() > 0) && (queue_get_end_of_queue(g_queue) == false))
         queue_destroy_first_item(g_queue);
     msgprintf(MSG_DEBUG1, "THREAD-MAIN2: queue is now empty\n");
     // the queue is empty, so thread_compress should now exit
-    
+
     for (i=0; (i<g_options.compressjobs) && (i<FSA_MAX_COMPJOBS); i++)
         if (thread_decomp[i] && pthread_join(thread_decomp[i], NULL) != 0)
             errprintf("pthread_join(thread_decomp) failed\n");
@@ -1790,12 +1822,11 @@ do_extract_success:
             dicofsinfo[i]=NULL;
         }
     }
-    
+
     // change the status if there were non-critical errors
     if (totalerr>0)
         ret=-1;
-    
+
     dico_destroy(dicomainhead);
-    //archreader_destroy(&exar.ai);
     return ret;
 }
