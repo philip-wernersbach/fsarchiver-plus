@@ -34,7 +34,10 @@ enum {OPER_NULL=0, OPER_SAVEFS, OPER_RESTFS, OPER_SAVEDIR, OPER_RESTDIR,
       OPER_ARCHINFO, OPER_PROBE, OPER_SAVEPT, OPER_RESTPT, OPER_SHOWPT};
 
 // ----------------------------------- fsarchiver status ---------------------------------------------
-enum {STATUS_RUNNING, STATUS_ABORTED, STATUS_FAILED};
+enum {STATUS_RUNNING,   // the program is running normally
+      STATUS_ABORTED,   // the user pressed Ctrl+C and it should stop now
+      STATUS_FAILED,    // one thread failed so it should stop now
+      STATUS_FINISHED}; // the main thread has received what it needs, should stop
 
 // ----------------------------------- dico sections ------------------------------------------------
 enum {DICO_OBJ_SECTION_STDATTR=0, DICO_OBJ_SECTION_XATTR=1, DICO_OBJ_SECTION_WINATTR=2};

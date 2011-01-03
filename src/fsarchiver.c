@@ -539,7 +539,7 @@ int main(int argc, char **argv)
 #endif // OPTION_LZO_SUPPORT
 
     // init libgcrypt
-    if (crypto_init()!=0)
+    if (crypto_init() != 0)
     {
         errprintf("cannot initialize the crypto environment\n");
         exit(EXIT_FAILURE);
@@ -548,27 +548,40 @@ int main(int argc, char **argv)
     // init
     options_init();
 
-    if ((g_queue=queue_alloc(FSA_MAX_QUEUESIZE)) == NULL)
+    if ((g_queue = queue_alloc(FSA_MAX_QUEUESIZE)) == NULL)
     {
         errprintf("cannot initialize g_iobuffer\n");
         exit(EXIT_FAILURE);
     }
 
-    if ((g_iobuffer=iobuffer_alloc(FSA_FEC_IOBUFSIZE, FSA_FEC_VALUE_K * FSA_FEC_PACKET_SIZE)) == NULL)
+    if ((g_iobuffer = iobuffer_alloc(FSA_FEC_IOBUFSIZE, FSA_FEC_VALUE_K * FSA_FEC_PACKET_SIZE)) == NULL)
     {
         errprintf("cannot initialize g_iobuffer (size of buffer: %d bytes)\n", (int)FSA_FEC_IOBUFSIZE);
         exit(EXIT_FAILURE);
     }
 
     // bulk of the program
-    ret=process_cmdline(argc, argv);
+    ret = process_cmdline(argc, argv);
+
+    // show status of the operation
+    switch (get_status())
+    {
+        case STATUS_RUNNING:
+        case STATUS_FINISHED:
+            msgprintf(MSG_FORCE, "operation completed\n");
+            break;
+        case STATUS_ABORTED:
+            msgprintf(MSG_FORCE, "operation aborted by user\n");
+            break;
+        case STATUS_FAILED:
+            msgprintf(MSG_FORCE, "operation failed\n");
+            break;
+    }
 
     // cleanup
     iobuffer_destroy(g_iobuffer);
     queue_destroy(g_queue);
     options_destroy();
-
-    // cleanup libgcrypt
     crypto_cleanup();
 
     return !!ret;

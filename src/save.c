@@ -1469,21 +1469,33 @@ int save(int argc, char **argv, int archtype)
             goto do_create_error;
     }
 
-    if (get_status() == STATUS_RUNNING)
-        goto do_create_success;
-    if (get_status() == STATUS_ABORTED)
-        msgprintf(MSG_FORCE, "operation aborted by user\n");
+    switch (get_status())
+    {
+        case STATUS_RUNNING:
+        case STATUS_FINISHED:
+            goto do_create_cleanup;
+        
+        case STATUS_ABORTED:
+            //msgprintf(MSG_FORCE, "operation aborted by user\n");
+            goto do_create_error;
+        
+        case STATUS_FAILED:
+            //msgprintf(MSG_FORCE, "operation failed\n");
+            goto do_create_error;
+    }
 
 do_create_error:
     msgprintf(MSG_DEBUG1, "THREAD-MAIN1: exit error\n");
     ret=-1;
 
-do_create_success:
+do_create_cleanup:
     msgprintf(MSG_DEBUG1, "THREAD-MAIN1: exit\n");
-    
+
+    queue_set_end_of_queue(g_queue, true); // other threads must not wait for more data from this thread
+ 
     for (i=0; i < FSA_MAX_FSPERARCH; i++)
     {
-        if (devinfo[i].mountedbyfsa==true)
+        if (devinfo[i].mountedbyfsa == true)
         {
             msgprintf(MSG_VERB2, "unmounting [%s] which is mounted on [%s]\n", devinfo[i].devpath, devinfo[i].partmount);
             if (filesys[devinfo[i].fstype].umount(devinfo[i].devpath, devinfo[i].partmount)!=0)
@@ -1492,23 +1504,20 @@ do_create_success:
                 rmdir(devinfo[i].partmount); // remove temp dir created by fsarchiver
         }
     }
-    
-    queue_set_end_of_queue(g_queue, true); // other threads must not wait for more data from this thread
-    
-    for (i=0; (i<g_options.compressjobs) && (i<FSA_MAX_COMPJOBS); i++)
+
+    for (i = 0; (i < g_options.compressjobs) && (i < FSA_MAX_COMPJOBS); i++)
         if (thread_comp[i] && pthread_join(thread_comp[i], NULL) != 0)
             errprintf("pthread_join(thread_comp[%d]) failed\n", i);
-    
+
     if (thread_writer && pthread_join(thread_writer, NULL) != 0)
         errprintf("pthread_join(thread_writer) failed\n");
-    
+
     if (thread_iobuffer && pthread_join(thread_iobuffer, NULL) != 0)
         errprintf("pthread_join(thread_iobuffer) failed\n");
-    
+
     // change the status if there were non-fatal errors
     if (totalerr > 0)
         ret = -1;
-    
-    //archio_destroy(&save.ai);
+
     return ret;
 }

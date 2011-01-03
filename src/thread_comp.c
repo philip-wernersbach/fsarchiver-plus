@@ -259,30 +259,23 @@ int compression_function(int oper)
             switch (oper)
             {
                 case COMPTHR_COMPRESS:
-                    res=compress_block_generic(&blkinfo);
+                    res = compress_block_generic(&blkinfo);
                     break;
                 case COMPTHR_DECOMPRESS:
-                    res=decompress_block_generic(&blkinfo);
+                    res = decompress_block_generic(&blkinfo);
                     break;
                 default:
-                    goto thread_comp_fct_error;
+                    set_status(STATUS_FAILED, "invalid oper");
+                    goto thread_comp_fct_cleanup;
             }
-            if (res != 0)
-            {
-                msgprintf(MSG_STACK, "compress_block()=%d failed\n", res);
-                //goto thread_comp_fct_error;
-            }
+
             // don't check for errors: it's normal to fail when we terminate after a problem
             queue_replace_block(g_queue, blknum, &blkinfo, QITEM_STATUS_DONE);
         }
     }
 
-    msgprintf(MSG_DEBUG1, "THREAD-COMP: exit success\n");
-    return 0;
-
-thread_comp_fct_error:
-    set_status(STATUS_FAILED, "thread_comp.c(thread_comp_fct_error)");
-    msgprintf(MSG_DEBUG1, "THREAD-COMP: exit error\n");
+thread_comp_fct_cleanup:
+    msgprintf(MSG_DEBUG1, "THREAD-COMP: exit\n");
     return 0;
 }
 

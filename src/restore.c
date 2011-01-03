@@ -1291,14 +1291,14 @@ int extractar_filesystem_extract(cextractar *exar, cdico *dicofs, cstrdico *dico
     memset(partition, 0, sizeof(partition));
     
     // read destination partition from dicocmdline
-    if (strdico_get_string(dicocmdline, partition, sizeof(partition), "dest")!=0)
+    if (strdico_get_string(dicocmdline, partition, sizeof(partition), "dest") != 0)
     {
         errprintf("strdico_get_string(dicocmdline, 'dest') failed\n");
         return -1;
     }
     
     // check that the minimum fsarchiver version required is ok
-    if (dico_get_u64(dicofs, 0, FSYSHEADKEY_MINFSAVERSION, &minver)!=0)
+    if (dico_get_u64(dicofs, 0, FSYSHEADKEY_MINFSAVERSION, &minver) != 0)
     {
         errprintf("dico_get_u64(FSYSHEADKEY_MINFSAVERSION) failed\n");
         return -1;
@@ -1340,23 +1340,23 @@ int extractar_filesystem_extract(cextractar *exar, cdico *dicofs, cstrdico *dico
     }
     
     // if a filesystem to use was specified: overwrite the default one
-    if (strdico_get_string(dicocmdline, tempbuf, sizeof(tempbuf), "mkfs")==0)
+    if (strdico_get_string(dicocmdline, tempbuf, sizeof(tempbuf), "mkfs") == 0)
     {
         snprintf(filesystem, sizeof(filesystem), "%s", tempbuf);
     }
-    else if ((dico_get_string(dicofs, 0, FSYSHEADKEY_FILESYSTEM, filesystem, sizeof(filesystem)))<0)
+    else if ((dico_get_string(dicofs, 0, FSYSHEADKEY_FILESYSTEM, filesystem, sizeof(filesystem))) < 0)
     {
         errprintf("dico_get_string(FSYSHEADKEY_FILESYSTEM) failed\n");
         return -1;
     }
        
-    if (dico_get_u64(dicofs, 0, FSYSHEADKEY_BYTESTOTAL, &fsbytestotal)!=0)
+    if (dico_get_u64(dicofs, 0, FSYSHEADKEY_BYTESTOTAL, &fsbytestotal) != 0)
     {
         errprintf("dico_get_string(FSYSHEADKEY_BYTESTOTAL) failed\n");
         return -1;
     }
     
-    if (dico_get_u64(dicofs, 0, FSYSHEADKEY_BYTESUSED, &fsbytesused)!=0)
+    if (dico_get_u64(dicofs, 0, FSYSHEADKEY_BYTESUSED, &fsbytesused) != 0)
     {
         errprintf("dico_get_string(FSYSHEADKEY_BYTESUSED) failed\n");
         return -1;
@@ -1367,14 +1367,14 @@ int extractar_filesystem_extract(cextractar *exar, cdico *dicofs, cstrdico *dico
     msgprintf(MSG_VERB2, "fsbytesused=[%s]\n", format_size(fsbytesused, text, sizeof(text), 'h'));
 
     // get index of the filesystem in the filesystem table
-    if (generic_get_fstype(filesystem, &fstype)!=0)
+    if (generic_get_fstype(filesystem, &fstype) != 0)
     {
         errprintf("filesystem [%s] is not supported by fsarchiver\n", filesystem);
         return -1;
     }
 
     // ---- make the filesystem
-    if (filesys[fstype].mkfs(dicofs, partition)!=0)
+    if (filesys[fstype].mkfs(dicofs, partition) != 0)
     {
         errprintf("cannot format the filesystem %s on partition %s\n", filesystem, partition);
         return -1;
@@ -1385,30 +1385,30 @@ int extractar_filesystem_extract(cextractar *exar, cdico *dicofs, cstrdico *dico
     generate_random_tmpdir(mntbuf, sizeof(mntbuf), 0);
     mkdir_recursive(mntbuf);
 
-    if ((dico_get_string(dicofs, 0, FSYSHEADKEY_MOUNTINFO, mountinfo, sizeof(mountinfo)))<0)
+    if ((dico_get_string(dicofs, 0, FSYSHEADKEY_MOUNTINFO, mountinfo, sizeof(mountinfo))) < 0)
         memset(mountinfo, 0, sizeof(mountinfo));
     msgprintf(MSG_VERB1, "Mount information: [%s]\n", mountinfo);
-    if (filesys[fstype].mount(partition, mntbuf, filesys[fstype].name, 0, mountinfo)!=0)
+    if (filesys[fstype].mount(partition, mntbuf, filesys[fstype].name, 0, mountinfo) != 0)
     {
         errprintf("partition [%s] cannot be mounted on %s. cannot continue.\n", partition, mntbuf);
         return -1;
     }
     
-    if (extractar_extract_read_objects(exar, &errors, mntbuf, fstype)!=0)
+    if (extractar_extract_read_objects(exar, &errors, mntbuf, fstype) != 0)
     {
         msgprintf(MSG_STACK, "extract_read_objects(%s) failed\n", mntbuf);
         ret=-1;
         goto filesystem_extract_umount;
     }
-    else if (errors>0)
+    else if (errors > 0)
     {
         msgprintf(MSG_DEBUG1, "extract_read_objects(%s) worked with errors\n", mntbuf);
         ret=-1;
         goto filesystem_extract_umount;
     }
-    
+
     // read "end of file-system" header from archive
-    if (queue_dequeue_header(g_queue, &dicoend, &headertype, NULL)<=0)
+    if (queue_dequeue_header(g_queue, &dicoend, &headertype, NULL) <= 0)
     {
         errprintf("queue_dequeue_header() failed\n");
         ret=-1;
@@ -1463,8 +1463,7 @@ int restore(int argc, char **argv, int oper)
     memset(&exar, 0, sizeof(exar));
     exar.cost_global=0;
     exar.cost_current=0;
-    //archreader_init(&exar.ai);
-    
+
     // init misc data struct to zero
     for (i=0; i<FSA_MAX_FSPERARCH; i++)
         dicoargv[i]=NULL;
@@ -1475,9 +1474,6 @@ int restore(int argc, char **argv, int oper)
     for (i=0; i<FSA_MAX_FSPERARCH; i++)
         g_fsbitmap[i]=0;
     thread_enqueue=0;
-    
-    // set archive path
-    //snprintf(exar.ai.basepath, PATH_MAX, "%s", archive);
     
     // convert the command line arguments to dicos and init g_fsbitmap
     switch (oper)
@@ -1684,7 +1680,7 @@ int restore(int argc, char **argv, int oper)
             goto do_extract_error;
         }
     }
-    
+
     switch (oper)
     {
         case OPER_RESTFS:
@@ -1717,7 +1713,7 @@ int restore(int argc, char **argv, int oper)
                 goto do_extract_error;
             }
             stats_show(exar.stats, 0);
-            totalerr+=stats_errcount(exar.stats);
+            totalerr += stats_errcount(exar.stats);
             break;
 
         case OPER_RESTPT:
@@ -1737,55 +1733,72 @@ int restore(int argc, char **argv, int oper)
                     }
                 }
             }
+            // stop reading the archive file
+            if (get_status() == STATUS_RUNNING)
+                set_status(STATUS_FINISHED, "");
             break;
-            
+
         case OPER_SHOWPT:
-            for (i=0; (i < archinfo.ptcount) && (i < FSA_MAX_PTPERARCH) && (get_status() == STATUS_RUNNING); i++)
+            for (i = 0; (i < archinfo.ptcount) && (i < FSA_MAX_PTPERARCH) && (get_status() == STATUS_RUNNING); i++)
             {
                 if (dico_get_string(dicodisklayout, LAYOUTHEADSEC_PARTTABLE, i, restptbuf, (u16)sizeof(restptbuf))<0)
                 {
                     errprintf("dico_get_string(%d, %d) failed to read the partition table description\n", LAYOUTHEADSEC_PARTTABLE, i);
                     goto do_extract_error;
                 }
-                if (showpt(restptbuf, i)!=0)
+                if (showpt(restptbuf, i) != 0)
                 {
                     msgprintf(MSG_STACK, "showpt() failed to restore partition table number %d\n", i);
                     goto do_extract_error;
                 }
             }
-	    msgprintf(MSG_FORCE, "\n");
+            // stop reading the archive file
+            if (get_status() == STATUS_RUNNING)
+                set_status(STATUS_FINISHED, "");
             break;
-            
+
         case OPER_ARCHINFO:
             if (archinfo_show_mainhead(&archinfo)!=0)
             {
                 errprintf("archinfo_show_mainhead() failed\n");
                 goto do_extract_error;
             }
-            for (i=0; (archinfo.archtype==ARCHTYPE_FILESYSTEMS) && (i < archinfo.fscount) && (i<FSA_MAX_FSPERARCH); i++)
+            for (i = 0; (archinfo.archtype == ARCHTYPE_FILESYSTEMS) && (i < archinfo.fscount) && (i < FSA_MAX_FSPERARCH); i++)
             {
-                if (oper==OPER_ARCHINFO && archinfo_show_fshead(dicofsinfo[i], i)!=0)
+                if (archinfo_show_fshead(dicofsinfo[i], i) != 0)
                 {
                     errprintf("archinfo_show_fshead() failed\n");
                     goto do_extract_error;
                 }
             }
+            // stop reading the archive file
+            if (get_status() == STATUS_RUNNING)
+                set_status(STATUS_FINISHED, "");
             break;
     }
-    
-    if (get_status() == STATUS_ABORTED)
-        msgprintf(MSG_FORCE, "operation aborted by user\n");
-    
-    if (get_status() == STATUS_RUNNING)
-        goto do_extract_success;
+
+    switch (get_status())
+    {
+        case STATUS_RUNNING:
+        case STATUS_FINISHED:
+            goto do_extract_cleanup;
+        
+        case STATUS_ABORTED:
+            //msgprintf(MSG_FORCE, "operation aborted by user\n");
+            goto do_extract_error;
+        
+        case STATUS_FAILED:
+            //msgprintf(MSG_FORCE, "operation failed\n");
+            goto do_extract_error;
+    }
 
 do_extract_error:
-    msgprintf(MSG_DEBUG1, "THREAD-MAIN2: exit error\n");
-    set_status(STATUS_FAILED, "restore.c(do_extract_error)");
+    if (get_status() == STATUS_RUNNING)
+        set_status(STATUS_FAILED, "restore.c(do_extract_error)");
     ret=-1;
 
-do_extract_success:
-    msgprintf(MSG_DEBUG1, "THREAD-MAIN2: exit success\n");
+do_extract_cleanup:
+    msgprintf(MSG_DEBUG1, "THREAD-MAIN2: exit\n");
     msgprintf(MSG_DEBUG2, "queue_count_items_todo(g_queue)=%d\n", (int)queue_count_items_todo(g_queue));
     while (queue_count_items_todo(g_queue) > 0) // let thread_compress process all the pending blocks
     {
@@ -1800,7 +1813,7 @@ do_extract_success:
     msgprintf(MSG_DEBUG1, "THREAD-MAIN2: queue is now empty\n");
     // the queue is empty, so thread_compress should now exit
 
-    for (i=0; (i<g_options.compressjobs) && (i<FSA_MAX_COMPJOBS); i++)
+    for (i = 0; (i<g_options.compressjobs) && (i<FSA_MAX_COMPJOBS); i++)
         if (thread_decomp[i] && pthread_join(thread_decomp[i], NULL) != 0)
             errprintf("pthread_join(thread_decomp) failed\n");
     
@@ -1810,21 +1823,21 @@ do_extract_success:
     if (thread_iobuffer && pthread_join(thread_iobuffer, NULL) != 0)
         errprintf("pthread_join(thread_iobuffer) failed\n");
 
-    for (i=0; i<FSA_MAX_FSPERARCH; i++)
+    for (i = 0; i < FSA_MAX_FSPERARCH; i++)
         if (dicoargv[i]!=NULL)
             strdico_destroy(dicoargv[i]);
     
-    for (i=0; i<FSA_MAX_FSPERARCH; i++)
+    for (i = 0; i < FSA_MAX_FSPERARCH; i++)
     {
-        if (dicofsinfo[i]!=NULL)
+        if (dicofsinfo[i] != NULL)
         {
             dico_destroy(dicofsinfo[i]);
-            dicofsinfo[i]=NULL;
+            dicofsinfo[i] = NULL;
         }
     }
 
     // change the status if there were non-critical errors
-    if (totalerr>0)
+    if (totalerr > 0)
         ret=-1;
 
     dico_destroy(dicomainhead);

@@ -80,26 +80,28 @@ void *thread_iobuf_to_archio_fct(void *args)
     assert(blocksize == sizeof(buffer_raw));
     assert(sizeof(cfecblockhead) == 16);
 
-    // initializes archive
-    path_force_extension(archive, sizeof(archive), g_archive, ".fsa");
-    if ((ai = archio_alloc()) == NULL)
-    {
-        errprintf("archio_alloc() failed()\n");
-        goto thread_iobuf_to_archio_error;
-    }
-    archio_init_write(ai, archive, g_options.ecclevel);
-
     // initializes FEC
     msgprintf(MSG_DEBUG1, "fec_new(k=%d, n=%d)\n", (int)FSA_FEC_VALUE_K, (int)fec_value_n);
     if ((fec_handle = fec_new(FSA_FEC_VALUE_K, fec_value_n)) == NULL)
     {
         errprintf("fec_new(k=%d, n=%d) failed\n", (int)FSA_FEC_VALUE_K, (int)fec_value_n);
-        goto thread_iobuf_to_archio_error;
+        set_status(STATUS_FAILED, "fec_new() failed");
+        goto thread_iobuf_to_archio_cleanup;
     }
     for (i=0; i < FSA_FEC_VALUE_K; i++)
     {
         fec_src_pkt[i] = &buffer_raw[i * FSA_FEC_PACKET_SIZE];
     }
+
+    // initializes archive
+    path_force_extension(archive, sizeof(archive), g_archive, ".fsa");
+    if ((ai = archio_alloc()) == NULL)
+    {
+        errprintf("archio_alloc() failed()\n");
+        set_status(STATUS_FAILED, "archio_alloc() failed");
+        goto thread_iobuf_to_archio_cleanup;
+    }
+    archio_init_write(ai, archive, g_options.ecclevel);
 
     // main loop
     while (((res = iobuffer_read_fec_block(g_iobuffer, buffer_raw, blocksize, &bytesused)) == FSAERR_SUCCESS) && (get_status() == STATUS_RUNNING))
@@ -122,37 +124,26 @@ void *thread_iobuf_to_archio_fct(void *args)
             curoffset += FSA_FEC_PACKET_SIZE + sizeof(cfecblockhead);
         }
 
-        //printf("FDEBUG-SAVE: archio_write_block(size=%ld, bytesused=%d)\n", (long)curoffset, (int)bytesused);
         if (archio_write_block(ai, buffer_fec, curoffset, bytesused, curvolpath, sizeof(curvolpath)) != 0)
         {
             msgprintf(MSG_STACK, "cannot write block to archive volume %s: archio_write_block() failed\n", curvolpath);
-            goto thread_iobuf_to_archio_error;
+            set_status(STATUS_FAILED, "archio_write_block() failed");
+            archio_close_write(ai, false);
+            archio_delete_all(ai);
+            goto thread_iobuf_to_archio_cleanup;
         }
 
         blocknum++;
     }
 
-    if ((res != FSAERR_ENDOFFILE) || (get_status() != STATUS_RUNNING))
-    {
-        if ((res != 0) && (res != FSAERR_ENDOFFILE))
-            errprintf("archio_read_block() failed with res=%d\n", res);
-        goto thread_iobuf_to_archio_error;
-    }
-
-    fec_free(fec_handle);
     archio_close_write(ai, true);
-    archio_destroy(ai);
-    msgprintf(MSG_DEBUG1, "THREAD-IOBUF-WRITER: exit success\n");
-    dec_secthreads();
-    return NULL;
 
-thread_iobuf_to_archio_error:
-    set_status(STATUS_FAILED, " thread_iobuf2arch.c(thread_iobuf_to_archio_error)");
+thread_iobuf_to_archio_cleanup:
+    if (get_status() != STATUS_RUNNING)
+        archio_delete_all(ai);
     fec_free(fec_handle);
-    archio_close_write(ai, false);
-    archio_delete_all(ai);
     archio_destroy(ai);
-    msgprintf(MSG_DEBUG1, "THREAD-IOBUF-WRITER: exit failure\n");
+    msgprintf(MSG_DEBUG1, "THREAD-IOBUF-WRITER: exit\n");
     dec_secthreads();
     return NULL;
 }
@@ -191,12 +182,14 @@ void *thread_archio_to_iobuf_fct(void *args)
     if ((ai = archio_alloc()) == NULL)
     {
         errprintf("archio_alloc() failed\n");
-        goto thread_archio_to_iobuf_error;
+        set_status(STATUS_FAILED, "archio_alloc() failed");
+        goto thread_archio_to_iobuf_cleanup;
     }
     if (archio_init_read(ai, g_archive, &ecclevel) != 0)
     {
         errprintf("archio_init_read() failed\n");
-        goto thread_archio_to_iobuf_error;
+        set_status(STATUS_FAILED, "archio_init_read() failed");
+        goto thread_archio_to_iobuf_cleanup;
     }
 
     // initializes FEC
@@ -204,14 +197,16 @@ void *thread_archio_to_iobuf_fct(void *args)
     if ((fec_value_n < FSA_FEC_VALUE_K) || (fec_value_n > FSA_FEC_MAXVAL_N))
     {
         errprintf("invalid value for fec_value_n found in the main FEC header: %d\n", (int)fec_value_n);
-        goto thread_archio_to_iobuf_error;
+        set_status(STATUS_FAILED, "fec_value_n is invalid");
+        goto thread_archio_to_iobuf_cleanup;
     }
 
     msgprintf(MSG_DEBUG1, "fec_new(k=%d, n=%d)\n", (int)FSA_FEC_VALUE_K, (int)fec_value_n);
     if ((fec_handle = fec_new(FSA_FEC_VALUE_K, fec_value_n)) == NULL)
     {
         errprintf("fec_new(k=%d, n=%d) failed\n", (int)FSA_FEC_VALUE_K, (int)fec_value_n);
-        goto thread_archio_to_iobuf_error;
+        set_status(STATUS_FAILED, "fec_new() failed");
+        goto thread_archio_to_iobuf_cleanup;
     }
 
     // read all fec encoded blocks from archive (one fec encoded block = N packets)
@@ -268,7 +263,8 @@ void *thread_archio_to_iobuf_fct(void *args)
             if (iobuffer_write_fec_block(g_iobuffer, buffer_dec, blocksize, bytesused) != 0)
             {
                 errprintf("iobuffer_write_fec_block() failed\n");
-                goto thread_archio_to_iobuf_error;
+                set_status(STATUS_FAILED, "iobuffer_write_fec_block() failed");
+                goto thread_archio_to_iobuf_cleanup;
             }
 
             if (badpkts > 0) // if errors have been found in the FEC packets
@@ -284,28 +280,12 @@ void *thread_archio_to_iobuf_fct(void *args)
         blocknum++;
     }
 
-    if ((res != FSAERR_ENDOFFILE) || (get_status() != STATUS_RUNNING))
-    {
-        if ((res != 0) && (res != FSAERR_ENDOFFILE))
-            errprintf("archio_read_block() failed with res=%d\n", res);
-        goto thread_archio_to_iobuf_error;
-    }
-
+thread_archio_to_iobuf_cleanup:
     iobuffer_set_end_of_buffer(g_iobuffer, true);
     archio_close_read(ai);
     fec_free(fec_handle);
     archio_destroy(ai);
-    msgprintf(MSG_DEBUG1, "THREAD-IOBUF-READER: exit success\n");
-    dec_secthreads();
-    return NULL;
-
-thread_archio_to_iobuf_error:
-    set_status(STATUS_FAILED, " thread_iobuf2arch.c(thread_archio_to_iobuf_error)");
-    iobuffer_set_end_of_buffer(g_iobuffer, true);
-    archio_close_read(ai);
-    fec_free(fec_handle);
-    archio_destroy(ai);
-    msgprintf(MSG_DEBUG1, "THREAD-IOBUF-READER: exit failure\n");
+    msgprintf(MSG_DEBUG1, "THREAD-IOBUF-READER: exit\n");
     dec_secthreads();
     return NULL;
 }

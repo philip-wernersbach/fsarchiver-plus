@@ -578,9 +578,8 @@ int iobuffer_read_block(ciobuffer *iob, struct s_dico *in_blkdico, int *out_sumo
 
     if (iobuffer_read_raw_data(iob, (char *)buffer, finalsize) != 0)
     {
-        sysprintf("cannot read block (finalsize=%ld) failed\n", (long)finalsize);
         free(buffer);
-        return -1;
+        return FSAERR_READ;
     }
 
     out_blkinfo->blkdata=(char*)buffer;
@@ -648,7 +647,6 @@ int iobuffer_read_logichead(ciobuffer *iob, u32 *headertype, struct s_dico **d, 
         // attempt to read logical-header header entirely from archive
         if ((res = iobuffer_read_raw_data(iob, readbuf, sizeof(readbuf))) != FSAERR_SUCCESS)
         {
-            msgprintf(MSG_STACK, "iobuffer_read_raw_data() failed to read logical-header header: res=%d\n", res);
             return FSAERR_READ;
         }
 

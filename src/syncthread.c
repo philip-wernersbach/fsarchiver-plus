@@ -50,6 +50,8 @@ char *get_status_text(int status)
     {
         case STATUS_RUNNING:
             return "STATUS_RUNNING";
+        case STATUS_FINISHED:
+            return "STATUS_FINISHED";
         case STATUS_ABORTED:
             return "STATUS_ABORTED";
         case STATUS_FAILED:
