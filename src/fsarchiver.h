@@ -29,11 +29,14 @@
 #    define max(a, b)            ((a) > (b) ? (a) : (b))
 #endif
 
-// ----------------------------------- fsarchiver commands ---------------------------------------------
+// ----------------------------------- fsarchiver commands ------------------------------------------
 enum {OPER_NULL=0, OPER_SAVEFS, OPER_RESTFS, OPER_SAVEDIR, OPER_RESTDIR, 
       OPER_ARCHINFO, OPER_PROBE, OPER_SAVEPT, OPER_RESTPT, OPER_SHOWPT};
 
-// ----------------------------------- fsarchiver status ---------------------------------------------
+// ----------------------------------- fsarchiver archive format ------------------------------------
+enum {FSA_FMT_NULL=0, FSA_FMT_06=1, FSA_FMT_07=2};
+
+// ----------------------------------- fsarchiver status --------------------------------------------
 enum {STATUS_RUNNING,   // the program is running normally
       STATUS_ABORTED,   // the user pressed Ctrl+C and it should stop now
       STATUS_FAILED,    // one thread failed so it should stop now
@@ -69,7 +72,7 @@ enum {BLOCKHEADITEMKEY_NULL=0, BLOCKHEADITEMKEY_REALSIZE, BLOCKHEADITEMKEY_BLOCK
 
 enum {BLOCKFOOTITEMKEY_NULL=0, BLOCKFOOTITEMKEY_MD5SUM};
 
-enum {MAINHEADKEY_NULL=0, MAINHEADKEY_FILEFORMATVER, MAINHEADKEY_PROGVERCREAT, MAINHEADOLD_ARCHIVEID, 
+enum {MAINHEADKEY_NULL=0, MAINHEADKEY_FILEFORMATVER, MAINHEADKEY_PROGVERCREAT, MAINHEADKEY_ARCHIVEID, 
       MAINHEADKEY_CREATTIME, MAINHEADKEY_ARCHLABEL, MAINHEADKEY_ARCHTYPE, MAINHEADKEY_FSCOUNT, 
       MAINHEADKEY_COMPRESSALGO, MAINHEADKEY_COMPRESSLEVEL, MAINHEADKEY_ENCRYPTALGO, 
       MAINHEADKEY_BUFCHECKPASSCLEARMD5, MAINHEADKEY_BUFCHECKPASSCRYPTBUF, MAINHEADKEY_FSACOMPLEVEL,
@@ -182,6 +185,7 @@ enum {FSAERR_SUCCESS=0,           // success
 // ----------------------------- global variables ----------------------------------------------------
 extern u32 g_valid_header_types[];
 extern char g_archive[];
+extern int g_archver;
 
 // -------------------------------- version_number to u64 --------------------------------------------
 #define FSA_VERSION_BUILD(a, b, c, d)     ((u64)((((u64)a&0xFFFF)<<48)+(((u64)b&0xFFFF)<<32)+(((u64)c&0xFFFF)<<16)+(((u64)d&0xFFFF)<<0)))

@@ -36,6 +36,8 @@
 
 #include "fsarchiver.h"
 #include "syncthread.h"
+#include "archio.h"
+#include "thread_compat06.h"
 #include "strlist.h"
 #include "common.h"
 #include "error.h"
@@ -663,4 +665,46 @@ int config_read_entry(char *entryname, char *buffer, int buflen)
     fclose(fconf);
     
     return ret;
+}
+
+int detect_file_format_version(char *archive)
+{
+    carchio *ai07 = NULL;
+    carchreader ai06;
+    u32 ecclevel = 0;
+
+    // attempt to read a fsarchiver-0.6 archive
+    archreader_init(&ai06);
+    snprintf(ai06.basepath, PATH_MAX, "%s", archive);
+
+    if ((archreader_volpath(&ai06) == 0) && (archreader_open(&ai06) == 0))
+    {
+        archreader_close(&ai06);
+        archreader_destroy(&ai06);
+        return FSA_FMT_06;
+    }
+    else
+    {
+        archreader_destroy(&ai06);
+    }
+
+    // attempt to read a fsarchiver-0.7 archive
+    if ((ai07 = archio_alloc()) == NULL)
+    {
+        return FSAERR_ENOMEM;
+    }
+
+    if (archio_init_read(ai07, archive, &ecclevel) == 0)
+    {
+        archio_close_read(ai07);
+        archio_destroy(ai07);
+        return FSA_FMT_07;
+    }
+    else
+    {
+        archio_destroy(ai07);
+    }
+
+
+    return FSA_FMT_NULL;
 }

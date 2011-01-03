@@ -1,7 +1,7 @@
 sbin_PROGRAMS		= fsarchiver
 
 fsarchiver_SOURCES	= fsarchiver.c save.c restore.c probe.c \
-	thread_queue2iobuf.c archio.c archinfo.c \
+	thread_queue2iobuf.c archio.c archinfo.c thread_compat06.c \
 	thread_comp.c comp_gzip.c comp_bzip2.c comp_lzma.c comp_lzo.c crypto.c \
 	fs_ntfs.c fs_ext2.c fs_reiserfs.c fs_reiser4.c fs_btrfs.c fs_xfs.c fs_jfs.c \
 	common.c dico.c strdico.c dichl.c queue.c error.c syncthread.c \
@@ -9,7 +9,7 @@ fsarchiver_SOURCES	= fsarchiver.c save.c restore.c probe.c \
 	layout_save.c layout_rest.c serializer.c thread_iobuf2archio.c fec.c iobuffer.c
 
 noinst_HEADERS		= fsarchiver.h save.h restore.h probe.h \
-	thread_queue2iobuf.h archio.h archinfo.h \
+	thread_queue2iobuf.h archio.h archinfo.h thread_compat06.h \
 	thread_comp.h comp_gzip.h comp_bzip2.h comp_lzma.h comp_lzo.h crypto.h \
 	fs_ntfs.h fs_ext2.h fs_reiserfs.h fs_reiser4.h fs_btrfs.h fs_xfs.h fs_jfs.h \
 	common.h dico.h strdico.h dichl.h queue.h error.h syncthread.h \

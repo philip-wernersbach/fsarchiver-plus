@@ -50,6 +50,7 @@ u32 g_valid_header_types[] = {FSA_HEADTYPE_MAIN, FSA_HEADTYPE_FSIN,
     FSA_HEADTYPE_BLKH, FSA_HEADTYPE_FILF, FSA_HEADTYPE_DATF, 0};
 
 char g_archive[PATH_MAX];
+int g_archver = FSA_FMT_NULL;
 
 void usage(char *progname, bool examples)
 {

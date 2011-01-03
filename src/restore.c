@@ -48,6 +48,7 @@
 #include "thread_comp.h"
 #include "thread_queue2iobuf.h"
 #include "thread_iobuf2archio.h"
+#include "thread_compat06.h"
 #include "layout_rest.h"
 #include "syncthread.h"
 #include "regmulti.h"
@@ -1100,21 +1101,26 @@ int extractar_extract_read_objects(cextractar *exar, int *errors, char *destdir,
 int extractar_read_disk_layout(carchinfo *archinfo, cdico **dicolayout)
 {
     u32 headertype;
+    int type;
 
-    if (queue_dequeue_header(g_queue, dicolayout, &headertype, NULL) <= 0)
+    if ((queue_check_next_item(g_queue, &type, &headertype) == 0) && (headertype == FSA_HEADTYPE_DILA))
     {
-        errprintf("queue_dequeue_header() failed: cannot read disk-layout header\n");
-        return -1;
-    }
 
-    if (headertype != FSA_HEADTYPE_DILA)
-    {
-        errprintf("header is not what we expected: found=[%ld] and expected=[%ld]\n", (long)headertype, (long)FSA_HEADTYPE_DILA);
-        return -1;
-    }
+        if (queue_dequeue_header(g_queue, dicolayout, &headertype, NULL) <= 0)
+        {
+            errprintf("queue_dequeue_header() failed: cannot read disk-layout header\n");
+            return -1;
+        }
 
-    if (dico_get_u64(*dicolayout, LAYOUTHEADSEC_STD, LAYOUTHEADKEY_PTCOUNT, &archinfo->ptcount) != 0)
-        archinfo->ptcount = 0;
+        if (headertype != FSA_HEADTYPE_DILA)
+        {
+            errprintf("header is not what we expected: found=[%ld] and expected=[%ld]\n", (long)headertype, (long)FSA_HEADTYPE_DILA);
+            return -1;
+        }
+
+        if (dico_get_u64(*dicolayout, LAYOUTHEADSEC_STD, LAYOUTHEADKEY_PTCOUNT, &archinfo->ptcount) != 0)
+            archinfo->ptcount = 0;
+    }
 
     return 0;
 }
@@ -1220,8 +1226,8 @@ int extractar_read_mainhead(carchinfo *archinfo, cdico **dicomainhead)
         return -1;
     }
 
-    // check the file format. New versions based on "FsArCh_002" also understand "FsArCh_001" which is very close (and "FsArCh_00Y"=="FsArCh_001")
-    if (strcmp(archinfo->filefmt, FSA_FILEFORMAT)!=0 && strcmp(archinfo->filefmt, "FsArCh_00Y")!=0 && strcmp(archinfo->filefmt, "FsArCh_001")!=0)
+    // check the file format. "FsArCh_001" == "FsArCh_002" = 0.6.x
+    if (strcmp(archinfo->filefmt, FSA_FILEFORMAT)!=0 && strcmp(archinfo->filefmt, "FsArCh_001")!=0 && strcmp(archinfo->filefmt, "FsArCh_002")!=0)
     {
         errprintf("This archive is based on a different file format: [%s]. Cannot continue.\n", archinfo->filefmt);
         errprintf("It has been created with fsarchiver [%s], you should extrat the archive using that version.\n", archinfo->creatver);
@@ -1440,6 +1446,7 @@ int restore(int argc, char **argv, int oper)
     pthread_t thread_decomp[FSA_MAX_COMPJOBS]; // reads blocks from queue and does decompression/decryption
     pthread_t thread_enqueue; // read raw bytes from iobuffer and put headers and blocks to the queue
     pthread_t thread_iobuffer; // read archive, fec_decode and store raw bytes in iobuffer
+    pthread_t thread_compat06; // read archive, fec_decode and store raw bytes in iobuffer
     cdico *dicofsinfo[FSA_MAX_FSPERARCH];
     cstrdico *dicoargv[FSA_MAX_FSPERARCH];
     cdico *dicomainhead=NULL;
@@ -1464,6 +1471,12 @@ int restore(int argc, char **argv, int oper)
     exar.cost_global=0;
     exar.cost_current=0;
 
+    // set all threads to 0
+    memset(thread_decomp, 0, sizeof(thread_decomp));
+    thread_enqueue = 0;
+    thread_iobuffer = 0;
+    thread_compat06 = 0;
+
     // init misc data struct to zero
     for (i=0; i<FSA_MAX_FSPERARCH; i++)
         dicoargv[i]=NULL;
@@ -1474,7 +1487,14 @@ int restore(int argc, char **argv, int oper)
     for (i=0; i<FSA_MAX_FSPERARCH; i++)
         g_fsbitmap[i]=0;
     thread_enqueue=0;
-    
+
+    // detect version of the file format
+    if ((g_archver = detect_file_format_version(g_archive)) < 0)
+    {
+        errprintf("Invalid archive file: %s\n", g_archive);
+        goto do_extract_error;
+    }
+
     // convert the command line arguments to dicos and init g_fsbitmap
     switch (oper)
     {
@@ -1502,7 +1522,7 @@ int restore(int argc, char **argv, int oper)
      }
 
     // create decompression threads
-    for (i=0; (i<g_options.compressjobs) && (i<FSA_MAX_COMPJOBS); i++)
+    for (i = 0; (i < g_options.compressjobs) && (i < FSA_MAX_COMPJOBS); i++)
     {
         if (pthread_create(&thread_decomp[i], NULL, thread_decomp_fct, NULL) != 0)
         {   errprintf("pthread_create(thread_decomp_fct) failed\n");
@@ -1510,18 +1530,29 @@ int restore(int argc, char **argv, int oper)
         }
     }
 
-    // create iobuffer-writer thread
-    if (pthread_create(&thread_iobuffer, NULL, thread_archio_to_iobuf_fct, NULL) != 0)
-    {   errprintf("pthread_create(thread_archio_to_iobuf_fct) failed\n");
-        ret=-1;
-        goto do_extract_error;
-    }
-
-    // create archive-reader thread
-    if (pthread_create(&thread_enqueue, NULL, thread_iobuf_to_queue_fct, NULL) != 0)
+    if (g_archver == FSA_FMT_06) // archive based on 0.6
     {
-        errprintf("pthread_create(thread_iobuf_to_queue_fct) failed\n");
-        goto do_extract_error;
+        // create archive-reader thread
+        if (pthread_create(&thread_compat06, NULL, thread_compat06_fct, NULL) != 0)
+        {   errprintf("pthread_create(thread_reader_fct) failed\n");
+            goto do_extract_error;
+        }
+    }
+    else if (g_archver == FSA_FMT_07) // archive based on 0.7
+    {
+        // create iobuffer-writer thread
+        if (pthread_create(&thread_iobuffer, NULL, thread_archio_to_iobuf_fct, NULL) != 0)
+        {   errprintf("pthread_create(thread_archio_to_iobuf_fct) failed\n");
+            ret=-1;
+            goto do_extract_error;
+        }
+
+        // create archive-reader thread
+        if (pthread_create(&thread_enqueue, NULL, thread_iobuf_to_queue_fct, NULL) != 0)
+        {
+            errprintf("pthread_create(thread_iobuf_to_queue_fct) failed\n");
+            goto do_extract_error;
+        }
     }
 
     // read archive main header
@@ -1802,7 +1833,6 @@ do_extract_cleanup:
     msgprintf(MSG_DEBUG2, "queue_count_items_todo(g_queue)=%d\n", (int)queue_count_items_todo(g_queue));
     while (queue_count_items_todo(g_queue) > 0) // let thread_compress process all the pending blocks
     {
-        printf("FDEBUG: queue_count_items_todo(): %ld\n", (long)queue_count_items_todo(g_queue));
         msgprintf(MSG_DEBUG2, "queue_count_items_todo(): %ld\n", (long)queue_count_items_todo(g_queue));
         usleep(10000);
     }
@@ -1813,20 +1843,23 @@ do_extract_cleanup:
     msgprintf(MSG_DEBUG1, "THREAD-MAIN2: queue is now empty\n");
     // the queue is empty, so thread_compress should now exit
 
-    for (i = 0; (i<g_options.compressjobs) && (i<FSA_MAX_COMPJOBS); i++)
-        if (thread_decomp[i] && pthread_join(thread_decomp[i], NULL) != 0)
+    for (i = 0; (i < g_options.compressjobs) && (i < FSA_MAX_COMPJOBS); i++)
+        if ((thread_decomp[i] != 0) && (pthread_join(thread_decomp[i], NULL) != 0))
             errprintf("pthread_join(thread_decomp) failed\n");
-    
-    if (thread_enqueue && pthread_join(thread_enqueue, NULL) != 0)
+
+    if ((thread_enqueue != 0) && (pthread_join(thread_enqueue, NULL) != 0))
         errprintf("pthread_join(thread_reader) failed\n");
-    
-    if (thread_iobuffer && pthread_join(thread_iobuffer, NULL) != 0)
+
+    if ((thread_iobuffer != 0) && (pthread_join(thread_iobuffer, NULL) != 0))
+        errprintf("pthread_join(thread_iobuffer) failed\n");
+
+    if ((thread_compat06 != 0) && (pthread_join(thread_compat06, NULL) != 0))
         errprintf("pthread_join(thread_iobuffer) failed\n");
 
     for (i = 0; i < FSA_MAX_FSPERARCH; i++)
         if (dicoargv[i]!=NULL)
             strdico_destroy(dicoargv[i]);
-    
+
     for (i = 0; i < FSA_MAX_FSPERARCH; i++)
     {
         if (dicofsinfo[i] != NULL)
