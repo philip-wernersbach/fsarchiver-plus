@@ -1475,8 +1475,8 @@ int restore(int argc, char **argv, int oper)
     // init
     memset(&archinfo, 0, sizeof(archinfo));
     memset(&exar, 0, sizeof(exar));
-    exar.cost_global=0;
-    exar.cost_current=0;
+    exar.cost_global = 0;
+    exar.cost_current = 0;
 
     // set all threads to 0
     memset(thread_decomp, 0, sizeof(thread_decomp));
@@ -1485,15 +1485,22 @@ int restore(int argc, char **argv, int oper)
     thread_compat06 = 0;
 
     // init misc data struct to zero
-    for (i=0; i<FSA_MAX_FSPERARCH; i++)
+    for (i = 0; i < FSA_MAX_FSPERARCH; i++)
         dicoargv[i]=NULL;
-    for (i=0; i<FSA_MAX_FSPERARCH; i++)
-        dicofsinfo[i]=NULL;
-    for (i=0; i<FSA_MAX_COMPJOBS; i++)
-        thread_decomp[i]=0;
-    for (i=0; i<FSA_MAX_FSPERARCH; i++)
-        g_fsbitmap[i]=0;
-    thread_enqueue=0;
+    for (i = 0; i < FSA_MAX_FSPERARCH; i++)
+        dicofsinfo[i] = NULL;
+    for (i = 0; i < FSA_MAX_COMPJOBS; i++)
+        thread_decomp[i] = 0;
+    for (i = 0; i < FSA_MAX_FSPERARCH; i++)
+        g_fsbitmap[i] = 0;
+    thread_enqueue = 0;
+
+    // check the archive file exists
+    while (regfile_exists(g_archive) != true)
+    {
+        errprintf("The archive file cannot be found: %s\n", g_archive);
+        goto do_extract_error;
+    }
 
     // detect version of the file format
     if ((g_archver = detect_file_format_version(g_archive)) == FSA_FMT_NULL)
