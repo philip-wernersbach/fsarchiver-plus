@@ -705,6 +705,5 @@ int detect_file_format_version(char *archive)
         archio_destroy(ai07);
     }
 
-
     return FSA_FMT_NULL;
 }

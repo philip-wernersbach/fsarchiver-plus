@@ -34,6 +34,7 @@ struct s_archinfo
     u32    fsacomp; // fsa compression level given on the command line by the user
     u64    creattime; // archive create time (number of seconds since epoch)
     u64    minfsaver; // minimum fsarchiver version required to restore that archive
+    int    hasdirsinfohead; // true if the archive contain the dirs-info header
     char   filefmt[FSA_MAX_FILEFMTLEN]; // file format of that archive
     char   creatver[FSA_MAX_PROGVERLEN]; // fsa version used to create archive
     char   label[FSA_MAX_LABELLEN]; // archive label defined by the user

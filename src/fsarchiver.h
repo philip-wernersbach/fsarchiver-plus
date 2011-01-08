@@ -76,7 +76,7 @@ enum {MAINHEADKEY_NULL=0, MAINHEADKEY_FILEFORMATVER, MAINHEADKEY_PROGVERCREAT, M
       MAINHEADKEY_CREATTIME, MAINHEADKEY_ARCHLABEL, MAINHEADKEY_ARCHTYPE, MAINHEADKEY_FSCOUNT, 
       MAINHEADKEY_COMPRESSALGO, MAINHEADKEY_COMPRESSLEVEL, MAINHEADKEY_ENCRYPTALGO, 
       MAINHEADKEY_BUFCHECKPASSCLEARMD5, MAINHEADKEY_BUFCHECKPASSCRYPTBUF, MAINHEADKEY_FSACOMPLEVEL,
-      MAINHEADKEY_MINFSAVERSION, MAINHEADOLD_HASDIRSINFOHEAD};
+      MAINHEADKEY_MINFSAVERSION, MAINHEADKEY_HASDIRSINFOHEAD};
 
 enum {LAYOUTHEADKEY_NULL=0, LAYOUTHEADKEY_PTCOUNT};
 
@@ -178,7 +178,7 @@ enum {FSAERR_SUCCESS=0,           // success
 #define FSA_HEADTYPE_DATF        ((u32)0x6E456144) // data footer (one per file system, at the end of its contents, or after the contents of the flatfiles)
 
 // ----------------------------- fsarchiver magic numbers --------------------------------------------
-#define FSA_MAGIC_IOPHYSHEADER   ((u32)0x72417346) // written in each physical-header ("FsAr" in little-endian)
+#define FSA_MAGIC_IOPHYSHEADER   ((u32)0x31417346) // written in each physical-header ("FsA1" in little-endian)
 #define FSA_MAGIC_LOGICHEADER1   ((u32)0x31486C46) // starts each logical-header ("FlH1" in little-endian)
 #define FSA_MAGIC_LOGICHEADER2   ((u32)0x32486C46) // finishes each logical-header ("FlH2" in little-endian)
 

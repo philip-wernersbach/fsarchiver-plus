@@ -189,6 +189,7 @@ int archio_open_read(carchio *ai)
         while (queue_count(g_queue) > 0) usleep(5000);
         fflush(stdout);
         fflush(stderr);
+
         // ask path to the current volume
         msgprintf(MSG_FORCE, "File [%s] is not found, please type the path to volume %ld:\n", ai->volpath, (long)ai->curvol);
         fprintf(stdout, "New path:> ");
@@ -294,9 +295,7 @@ int archio_open_read(carchio *ai)
         return FSAERR_CORRUPT;
     }
 
-    // 5. anaylse data found in the valid volhead/volfoot header
-
-    // check volume number
+    // 5. check volume number is the one we expect
     if (volnum != ai->curvol)
     {
         errprintf("Unexpected fsarchiver volume number: "
@@ -306,7 +305,7 @@ int archio_open_read(carchio *ai)
         return FSAERR_WRONGVOL;
     }
 
-    // check minimum version requirement
+    // 6. check minimum version requirement to read that file
     curver = FSA_VERSION_BUILD(PACKAGE_VERSION_A, PACKAGE_VERSION_B, PACKAGE_VERSION_C, PACKAGE_VERSION_D);
     if (curver < minver)
     {
@@ -321,7 +320,7 @@ int archio_open_read(carchio *ai)
         return FSAERR_WRONGVER;
     }
 
-    // 6. save or check the archive id
+    // 7. save or check the archive id
     if (volnum == 0)
     {
         ai->archid = archid;

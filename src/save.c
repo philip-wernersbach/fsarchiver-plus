@@ -984,6 +984,7 @@ int createar_write_mainhead(csavear *save, int archtype, int fscount)
         dico_add_u32(mainhead, 0, MAINHEADKEY_COMPRESSLEVEL, g_options.compresslevel);
         dico_add_u32(mainhead, 0, MAINHEADKEY_ENCRYPTALGO, g_options.encryptalgo);
         dico_add_u32(mainhead, 0, MAINHEADKEY_FSACOMPLEVEL, g_options.fsacomplevel);
+        dico_add_u32(mainhead, 0, MAINHEADKEY_HASDIRSINFOHEAD, true);
 
         // minimum fsarchiver version required to restore that archive
         dico_add_u64(mainhead, 0, MAINHEADKEY_MINFSAVERSION, FSA_VERSION_BUILD(0, 7, 0, 0));

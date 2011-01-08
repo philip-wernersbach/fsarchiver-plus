@@ -1137,6 +1137,7 @@ int extractar_read_mainhead(carchinfo *archinfo, cdico **dicomainhead)
     u8 md5sumnew[16];
     u64 clearsize;
     int passlen;
+    u32 temp32;
     int type;
 
     assert(dicomainhead);
@@ -1224,6 +1225,12 @@ int extractar_read_mainhead(carchinfo *archinfo, cdico **dicomainhead)
     {
         errprintf("cannot find MAINHEADKEY_CREATTIME in main-header\n");
         return -1;
+    }
+
+    // MAINHEADKEY_HASDIRSINFOHEAD has been introduced in fsarchiver-0.6.7: don't fail if missing
+    if (dico_get_u32(*dicomainhead, 0, MAINHEADKEY_HASDIRSINFOHEAD, &temp32) == 0)
+    {
+        archinfo->hasdirsinfohead = temp32;
     }
 
     // check the file format. "FsArCh_001" == "FsArCh_002" = 0.6.x
@@ -1489,7 +1496,7 @@ int restore(int argc, char **argv, int oper)
     thread_enqueue=0;
 
     // detect version of the file format
-    if ((g_archver = detect_file_format_version(g_archive)) < 0)
+    if ((g_archver = detect_file_format_version(g_archive)) == FSA_FMT_NULL)
     {
         errprintf("Invalid archive file: %s\n", g_archive);
         goto do_extract_error;
@@ -1501,22 +1508,24 @@ int restore(int argc, char **argv, int oper)
         case OPER_RESTFS:
             // convert the arguments from the command line to dico
             if (convert_argv_to_strdicos(dicoargv, argc, argv, "id,dest,mkfs")!=0)
-            {   msgprintf(MSG_STACK, "convert_argv_to_dico() failed\n");
+            {
+                msgprintf(MSG_STACK, "convert_argv_to_dico() failed\n");
                 goto do_extract_error;
             }
             // say to the threadio_readarch thread which filesystems have to be read in archive
             for (i=0; i<FSA_MAX_FSPERARCH; i++)
                 g_fsbitmap[i]=!!(dicoargv[i]!=NULL);
             break;
-            
+
        case OPER_RESTDIR: // the files are all considered as belonging to fsid==0
             g_fsbitmap[0]=1;
             break;
-            
+
         case OPER_RESTPT:
             // convert the arguments from the command line to dico
             if (convert_argv_to_strdicos(dicoargv, argc, argv, "id,dest")!=0)
-            {   msgprintf(MSG_STACK, "convert_argv_to_dico() failed\n");
+            {
+                msgprintf(MSG_STACK, "convert_argv_to_dico() failed\n");
                 goto do_extract_error;
             }
      }
@@ -1530,29 +1539,35 @@ int restore(int argc, char **argv, int oper)
         }
     }
 
-    if (g_archver == FSA_FMT_06) // archive based on 0.6
+    // create archive-reader thread(s)
+    switch (g_archver)
     {
-        // create archive-reader thread
-        if (pthread_create(&thread_compat06, NULL, thread_compat06_fct, NULL) != 0)
-        {   errprintf("pthread_create(thread_reader_fct) failed\n");
-            goto do_extract_error;
-        }
-    }
-    else if (g_archver == FSA_FMT_07) // archive based on 0.7
-    {
-        // create iobuffer-writer thread
-        if (pthread_create(&thread_iobuffer, NULL, thread_archio_to_iobuf_fct, NULL) != 0)
-        {   errprintf("pthread_create(thread_archio_to_iobuf_fct) failed\n");
-            ret=-1;
-            goto do_extract_error;
-        }
+        case FSA_FMT_06: // archive in 0.6.x archive file format
+            if (pthread_create(&thread_compat06, NULL, thread_compat06_fct, NULL) != 0)
+            {
+                errprintf("pthread_create(thread_reader_fct) failed\n");
+                goto do_extract_error;
+            }
+            break;
 
-        // create archive-reader thread
-        if (pthread_create(&thread_enqueue, NULL, thread_iobuf_to_queue_fct, NULL) != 0)
-        {
-            errprintf("pthread_create(thread_iobuf_to_queue_fct) failed\n");
+        case FSA_FMT_07: // archive in 0.7.x archive file format
+            if (pthread_create(&thread_iobuffer, NULL, thread_archio_to_iobuf_fct, NULL) != 0)
+            {
+                errprintf("pthread_create(thread_archio_to_iobuf_fct) failed\n");
+                ret=-1;
+                goto do_extract_error;
+            }
+            if (pthread_create(&thread_enqueue, NULL, thread_iobuf_to_queue_fct, NULL) != 0)
+            {
+                errprintf("pthread_create(thread_iobuf_to_queue_fct) failed\n");
+                goto do_extract_error;
+            }
+            break;
+
+        default:
+            errprintf("Invalid archive file format: %d\n", g_archver);
             goto do_extract_error;
-        }
+            break;
     }
 
     // read archive main header
@@ -1575,44 +1590,46 @@ int restore(int argc, char **argv, int oper)
     msgprintf(MSG_VERB2, "Minimum fsarchiver version for that archive: %d.%d.%d.%d\n", (int)FSA_VERSION_GET_A(archinfo.minfsaver), 
         (int)FSA_VERSION_GET_B(archinfo.minfsaver), (int)FSA_VERSION_GET_C(archinfo.minfsaver), (int)FSA_VERSION_GET_D(archinfo.minfsaver));
 
-    if (((oper==OPER_RESTFS) || (oper==OPER_RESTDIR)) && (curver < archinfo.minfsaver))
+    if (((oper == OPER_RESTFS) || (oper == OPER_RESTDIR)) && (curver < archinfo.minfsaver))
     {
         errprintf("This archive can only be restored with fsarchiver %d.%d.%d.%d or more recent\n",
         (int)FSA_VERSION_GET_A(archinfo.minfsaver), (int)FSA_VERSION_GET_B(archinfo.minfsaver), 
         (int)FSA_VERSION_GET_C(archinfo.minfsaver), (int)FSA_VERSION_GET_D(archinfo.minfsaver));
         goto do_extract_error;
     }
-    
+
     // check that the operation requested on the command line matches the archive type
     switch (archinfo.archtype)
     {
         case ARCHTYPE_FILESYSTEMS:
-            if (oper!=OPER_RESTFS && oper!=OPER_RESTPT && oper!=OPER_SHOWPT && oper!=OPER_ARCHINFO)
+            if (oper != OPER_RESTFS && oper != OPER_RESTPT && oper != OPER_SHOWPT && oper != OPER_ARCHINFO)
             {
                 errprintf("this archive contains filesystems. The command is not appropriate for that type of archive\n");
                 goto do_extract_error;
             }
             break;
+
         case ARCHTYPE_DIRECTORIES:
-            if (oper!=OPER_RESTDIR && oper!=OPER_ARCHINFO)
+            if (oper != OPER_RESTDIR && oper != OPER_ARCHINFO)
             {
                 errprintf("this archive contains flat files & directories. The command is not appropriate for that type of archive\n");
                 goto do_extract_error;
             }
             break;
+
         default:
             errprintf("this archive has an unknown type: %d, cannot continue\n", archinfo.archtype);
             goto do_extract_error;
             break;
     }
-    
+
     // check that password has been provided if necessary
     if ((archinfo.cryptalgo != ENCRYPT_NONE) && (g_options.encryptalgo != ENCRYPT_BLOWFISH))
     {
         errprintf("this archive has been encrypted, you have to provide a password on the command line using option '-c'\n");
         goto do_extract_error;
     }
-    
+
     // check arguments are valid
     switch (oper)
     {
@@ -1656,9 +1673,9 @@ int restore(int argc, char **argv, int oper)
             break;
             
         case OPER_RESTPT:
-            for (i=0; i<FSA_MAX_PTPERARCH; i++)
+            for (i=0; i < FSA_MAX_PTPERARCH; i++)
             {
-                if ((dicoargv[i]!=NULL) && (i >= archinfo.ptcount))
+                if ((dicoargv[i] != NULL) && (i >= archinfo.ptcount))
                 {
                     errprintf("invalid partition-table id: [%d]. the partition-table id must be an integer between 0 and %d\n", 
                         (int)i, (int)(archinfo.ptcount-1));
@@ -1676,7 +1693,7 @@ int restore(int argc, char **argv, int oper)
     }
 
     // read the fsinfo header for each filesystem and calculate total cost of the restfs
-    for (i=0; (archinfo.archtype == ARCHTYPE_FILESYSTEMS) && (i < archinfo.fscount) && (i < FSA_MAX_FSPERARCH); i++)
+    for (i = 0; (archinfo.archtype == ARCHTYPE_FILESYSTEMS) && (i < archinfo.fscount) && (i < FSA_MAX_FSPERARCH); i++)
     {
         if (queue_dequeue_header(g_queue, &dicofsinfo[i], &headertype, NULL)<=0)
         {
@@ -1688,12 +1705,14 @@ int restore(int argc, char **argv, int oper)
             errprintf("header is not what we expected: found=[%ld] and expected=[%ld]\n", (long)headertype, (long)FSA_HEADTYPE_FSIN);
             goto do_extract_error;
         }
-        if ((dicoargv[i]!=NULL) && (dico_get_u64(dicofsinfo[i], 0, FSYSHEADKEY_TOTALCOST, &fscost)==0))
+        if ((dicoargv[i] != NULL) && (dico_get_u64(dicofsinfo[i], 0, FSYSHEADKEY_TOTALCOST, &fscost) == 0))
+        {
             exar.cost_global+=fscost;
+        }
     }
 
     // read the dirsinfo header which contains the statistrics (only if this header is present)
-    if ((archinfo.archtype == ARCHTYPE_DIRECTORIES))
+    if ((archinfo.archtype == ARCHTYPE_DIRECTORIES) && (archinfo.hasdirsinfohead == true))
     {
         if (queue_dequeue_header(g_queue, &dirsinfo, &headertype, NULL)<=0)
         {
