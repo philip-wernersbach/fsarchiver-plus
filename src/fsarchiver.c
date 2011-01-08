@@ -569,13 +569,13 @@ int main(int argc, char **argv)
     {
         case STATUS_RUNNING:
         case STATUS_FINISHED:
-            msgprintf(MSG_FORCE, "operation completed\n");
+            msgprintf(MSG_FORCE, "\noperation completed\n");
             break;
         case STATUS_ABORTED:
-            msgprintf(MSG_FORCE, "operation aborted by user\n");
+            msgprintf(MSG_FORCE, "\noperation aborted by user\n");
             break;
         case STATUS_FAILED:
-            msgprintf(MSG_FORCE, "operation failed\n");
+            msgprintf(MSG_FORCE, "\noperation failed\n");
             break;
     }
 
