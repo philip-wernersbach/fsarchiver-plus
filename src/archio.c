@@ -173,6 +173,7 @@ int archio_open_read(carchio *ai)
 {
     ciohead volhead[2];
     struct stat64 st;
+    char buffer[PATH_MAX];
     u32 volnum = 0;
     u32 archid = 0;
     u64 minver = 0;
@@ -193,7 +194,13 @@ int archio_open_read(carchio *ai)
         // ask path to the current volume
         msgprintf(MSG_FORCE, "File [%s] is not found, please type the path to volume %ld:\n", ai->volpath, (long)ai->curvol);
         fprintf(stdout, "New path:> ");
-        scanf("%s", ai->volpath);
+        memset(buffer, 0, sizeof(buffer));
+        fgets(buffer, sizeof(buffer), stdin);
+        if (sscanf(buffer, "%s", ai->volpath) != 1)
+        {
+            errprintf("No valid alternative volume provided\n");
+            return FSAERR_OPEN;
+        }
     }
 
     if ((ai->archfd = open64(ai->volpath, O_RDONLY|O_LARGEFILE)) < 0)
