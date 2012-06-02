@@ -5,6 +5,9 @@ fsarchiver: Filesystem Archiver for Linux [http://www.fsarchiver.org]
   - Added configuration file: /etc/fsarchiver.conf (it currently only supports "exclude_restpt")
   - Implemented error correction based on Forward Error Correction (FEC) (cf: option -y)
   - File format more robust when corruptions / insertions / deletions happen in the archive
+* 0.6.14 (2012-06-02):
+  - Added support for recent btrfs features (up to linux-3.4)
+  - Fixed compilation warnings (variable ‘res’ set but not used)
 * 0.6.13 (2012-03-04):
   - Fixed detection of the root filesystem using "/proc/self/mountinfo" instead of "/proc/mounts"
 * 0.6.12 (2010-12-25):
