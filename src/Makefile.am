@@ -5,7 +5,8 @@ fsarchiver_SOURCES	= fsarchiver.c oper_save.c oper_restore.c oper_probe.c \
 	thread_comp.c comp_gzip.c comp_bzip2.c comp_lzma.c comp_lzo.c crypto.c \
 	fs_ntfs.c fs_ext2.c fs_reiserfs.c fs_reiser4.c fs_btrfs.c fs_xfs.c fs_jfs.c \
 	common.c dico.c strdico.c dichl.c queue.c error.c syncthread.c \
-	datafile.c strlist.c regmulti.c options.c logfile.c filesys.c devinfo.c
+	datafile.c strlist.c regmulti.c options.c logfile.c filesys.c devinfo.c \
+	readwait.c
 
 noinst_HEADERS		= fsarchiver.h oper_save.h oper_restore.h oper_probe.h \
 	thread_archio.h archreader.h archwriter.h writebuf.h archinfo.h \
