@@ -41,6 +41,8 @@
 #include "fs_jfs.h"
 #include "fs_ntfs.h"
 #include "fs_vfat.h"
+#include "fs_swap.h"
+#include "fs_empty.h"
 #include "error.h"
 #include "syncthread.h"
 
@@ -56,6 +58,7 @@ cfilesys filesys[]=
     {"jfs",      jfs_mount,      jfs_umount,      jfs_getinfo,      jfs_mkfs,      jfs_test,      jfs_get_reqmntopt,      false, false},
     {"ntfs",     ntfs_mount,     ntfs_umount,     ntfs_getinfo,     ntfs_mkfs,     ntfs_test,     ntfs_get_reqmntopt,     true,  true},
     {"vfat",     vfat_mount,     vfat_umount,     vfat_getinfo,     vfat_mkfs,     vfat_test,     vfat_get_reqmntopt,     false, false},
+    {"swap",     empty_mount,    empty_umount,    swap_getinfo,     swap_mkfs,     swap_test,     swap_get_reqmntopt,     false, false},
     {NULL,       NULL,           NULL,            NULL,             NULL,          NULL,          NULL,                   false, false},
 };
 
