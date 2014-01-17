@@ -51,6 +51,10 @@ static int inotify_watch_desc = -1;
 
 static __thread char *event_buffer = NULL;
 
+static struct sigaction handler_action;
+static int handler_action_set_up = 0;
+void interrupt_handler(int signal) {}
+
 ssize_t readwait(int fildes, void *buf, size_t nbyte) {
 	s64 position = lseek64(fildes, 0, SEEK_CUR);
 	s64 file_size = lseek64(fildes, 0, SEEK_END);
@@ -89,6 +93,17 @@ ssize_t readwait(int fildes, void *buf, size_t nbyte) {
 		
 		if (event_buffer == NULL)
 			event_buffer = malloc(INOTIFY_BUFFER_SIZE);
+		
+		set_oper_restore_reader_thread(pthread_self());
+		if (!handler_action_set_up) {
+			handler_action.sa_handler = interrupt_handler;
+			sigemptyset(&handler_action.sa_mask);
+			handler_action.sa_flags = 0;
+		
+			handler_action_set_up = 1;
+		}
+    
+		sigaction(SIGUSR1, &handler_action, NULL);
 		
 		prior_errno = errno;
 		if ((inotify_read_return = read(inotify_fd, event_buffer, INOTIFY_BUFFER_SIZE)) < 1) {

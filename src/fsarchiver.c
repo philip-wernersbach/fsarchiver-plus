@@ -2,6 +2,7 @@
  * fsarchiver: Filesystem Archiver
  *
  * Copyright (C) 2008-2012 Francois Dupoux.  All rights reserved.
+ * Copyright (C) Philip Wernersbach & Jacobs Automation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public
@@ -142,7 +143,7 @@ int process_cmdline(int argc, char **argv)
     char *partition[FSA_MAX_FSPERARCH];
     bool runasroot=true;
     char *probemode;
-    sigset_t mask_set;
+    struct sigaction handler_action;
     bool probedetailed=0;
     char *command=NULL;
     char *archive=NULL;
@@ -379,11 +380,13 @@ int process_cmdline(int argc, char **argv)
     for (fscount=0; (fscount < argc) && (argv[fscount]); fscount++)
         partition[fscount]=argv[fscount];
     
-    // install signal handlers
-    sigemptyset(&mask_set);
-    sigaddset(&mask_set, SIGINT);
-    sigaddset(&mask_set, SIGTERM);
-    sigprocmask(SIG_SETMASK, &mask_set, NULL);
+    // install signal handler
+    handler_action.sa_handler = set_abort;
+    sigemptyset(&handler_action.sa_mask);
+    handler_action.sa_flags = 0;
+    
+    sigaction(SIGINT, &handler_action, NULL);
+    sigaction(SIGTERM, &handler_action, NULL);
     
     if (g_options.debuglevel>0)
         logfile_open();
