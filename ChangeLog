@@ -1,5 +1,9 @@
 fsarchiver: Filesystem Archiver for Linux [http://www.fsarchiver.org]
 =====================================================================
+* plus-0.6.17 (2014-01-17):
+  - Added support for FAT32 filesystems (Philip Wernersbach & Jacobs Automation)
+  - Added support for Linux Swap partitions (Philip Wernersbach & Jacobs Automation)
+  - Improved filesystem unmount code; fsarchiver will now wait for a busy filesystem to become idle before unmounting (Philip Wernersbach & Jacobs Automation)
 * 0.6.17 (2013-02-25):
   - Implemented "mkfsopt" restfs option to pass extra options to mkfs (Michael Moninski)
   - Fixed parsing of "/proc/self/mountinfo" (mount options were not parsed on new systems)
