@@ -2,6 +2,7 @@
  * fsarchiver: Filesystem Archiver
  *
  * Copyright (C) 2008-2012 Francois Dupoux.  All rights reserved.
+ * Copyright (C) 2014 Philip Wernersbach & Jacobs Automation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public
@@ -26,6 +27,8 @@
 #include <sys/statvfs.h>
 #include <sys/stat.h>
 #include <assert.h>
+
+#include "readwait.h"
 
 #include "fsarchiver.h"
 #include "dico.h"
@@ -66,6 +69,8 @@ int archreader_open(carchreader *ai)
     int magiclen;
     
     assert(ai);
+    
+    readwait_filename = ai->volpath;
     
     // on the archive volume
     ai->archfd=open64(ai->volpath, O_RDONLY|O_LARGEFILE);
