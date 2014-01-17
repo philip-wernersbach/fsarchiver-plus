@@ -3,7 +3,7 @@ sbin_PROGRAMS		= fsarchiver
 fsarchiver_SOURCES	= fsarchiver.c oper_save.c oper_restore.c oper_probe.c \
 	thread_archio.c archreader.c archwriter.c writebuf.c archinfo.c \
 	thread_comp.c comp_gzip.c comp_bzip2.c comp_lzma.c comp_lzo.c crypto.c \
-	fs_ntfs.c fs_ext2.c fs_reiserfs.c fs_reiser4.c fs_btrfs.c fs_xfs.c fs_jfs.c \
+	fs_ntfs.c fs_ext2.c fs_reiserfs.c fs_reiser4.c fs_btrfs.c fs_xfs.c fs_jfs.c fs_empty.c fs_swap.c \
 	common.c dico.c strdico.c dichl.c queue.c error.c syncthread.c \
 	datafile.c strlist.c regmulti.c options.c logfile.c filesys.c devinfo.c
 
