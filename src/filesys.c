@@ -2,6 +2,7 @@
  * fsarchiver: Filesystem Archiver
  *
  * Copyright (C) 2008-2012 Francois Dupoux.  All rights reserved.
+ * Copyright (C) 2014 Philip Wernersbach & Jacobs Automation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public
@@ -38,6 +39,8 @@
 #include "fs_xfs.h"
 #include "fs_jfs.h"
 #include "fs_ntfs.h"
+#include "fs_swap.h"
+#include "fs_empty.h"
 #include "error.h"
 
 cfilesys filesys[]=
@@ -51,6 +54,7 @@ cfilesys filesys[]=
     {"xfs",      xfs_mount,      xfs_umount,      xfs_getinfo,      xfs_mkfs,      xfs_test,      xfs_get_reqmntopt,      false, false},
     {"jfs",      jfs_mount,      jfs_umount,      jfs_getinfo,      jfs_mkfs,      jfs_test,      jfs_get_reqmntopt,      false, false},
     {"ntfs",     ntfs_mount,     ntfs_umount,     ntfs_getinfo,     ntfs_mkfs,     ntfs_test,     ntfs_get_reqmntopt,     true,  true},
+    {"swap",     empty_mount,    empty_umount,    swap_getinfo,     swap_mkfs,     swap_test,     swap_get_reqmntopt,     false, false},
     {NULL,       NULL,           NULL,            NULL,             NULL,          NULL,          NULL,                   false, false},
 };
 
