@@ -2,6 +2,7 @@
  * fsarchiver: Filesystem Archiver
  *
  * Copyright (C) 2008-2012 Francois Dupoux.  All rights reserved.
+ * Copyright (C) 2014 Philip Wernersbach & Jacobs Automation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public
@@ -27,6 +28,7 @@
 #include <sys/mount.h>
 #include <sys/types.h>
 #include <errno.h>
+#include <unistd.h>
 
 #include "fsarchiver.h"
 #include "common.h"
@@ -39,6 +41,7 @@
 #include "fs_jfs.h"
 #include "fs_ntfs.h"
 #include "error.h"
+#include "syncthread.h"
 
 cfilesys filesys[]=
 {
@@ -319,12 +322,22 @@ int generic_mount(char *partition, char *mntbuf, char *fsbuf, char *mntopt, int 
 
 int generic_umount(char *mntbuf)
 {
+    int ret = -1;
+    
     if (!mntbuf)
     {   errprintf("invalid param: mntbuf is null\n");
         return -1;
     }
     msgprintf(MSG_DEBUG1, "unmount_partition(%s)\n", mntbuf);
-    return umount2(mntbuf, 0);
+    
+    while (((ret = umount2(mntbuf, 0)) != 0) && (errno == EBUSY) && !get_abort())
+    {
+        errprintf("%s is busy, sync()'ing and trying umount() again.\n", mntbuf);
+        sync();
+        sleep(3);
+    }
+    
+    return ret;
 }
 
 char *format_prog_version(u64 version, char *bufdat, int buflen)
